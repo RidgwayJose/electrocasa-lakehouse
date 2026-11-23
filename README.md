@@ -271,6 +271,9 @@ Se crearon funciones de enmascaramiento gobernadas para proteger información de
   ALTER TABLE electrocasa_dev.silver.empleados ALTER COLUMN salario SET MASK electrocasa_dev.silver.mask_salario;
   ```
 
+* **Consideración de Arquitectura sobre el Dueño del Pipeline (*Pipeline Owner*):**  
+  De acuerdo con las directrices de Unity Catalog, el refresco del pipeline ejecuta con los privilegios del propietario del recurso (`ridgwayjose39@gmail.com`). Dado que dicho usuario pertenece al grupo `electrocasa_ingenieria`, el motor de DLT procesa los datos reales de colaboradores sin aplicar el enmascaramiento durante las transformaciones intermedias. Esto asegura que los Data Marts derivados en Gold (`gold.q3_dotacion_activa_mensual` y `gold.q4_ventas_vendedor_historico`) computen rotación, dotación activa y comisiones sobre cifras íntegras, mientras que cualquier usuario externo o analista que consulte las tablas gobernadas recibe los valores enmascarados de forma segura.
+
 ---
 
 ## 5. Ingesta Incremental con Lakeflow Connect (Tracking Azure SQL)
@@ -299,15 +302,27 @@ La tabla `dbo.TrackingEnvios` reside en una base de datos externa Azure SQL Data
 *Figura 4: Orquestador Lakeflow Job con sus 3 tareas secuenciales en verde (ingesta_copy_into -> pipeline_medallion -> validacion_calidad).*
 
 ![DAG Pipeline DLT Medallion](img/03_dlt_pipeline_medallion.jpg)
-*Figura 5: Grafo acíclico dirigido (DAG) de Lakeflow Spark Declarative Pipelines completado con sus 21 tablas en verde.*
+*Figura 5: Grafo acíclico dirigido (DAG) de Lakeflow Spark Declarative Pipelines completado con sus 22 tablas en verde.*
 
 ![Monitoreo Jobs y Pipelines](img/05_jobs_and_pipelines_overview.png)
 *Figura 6: Vista general de Jobs & Pipelines de Databricks con ejecuciones recientes exitosas.*
 
 ### 6.1. Evolución de Conteos por Lote (Lote 1 $\rightarrow$ Lote 2 $\rightarrow$ Lote 3)
-A continuación se documenta el comportamiento incremental tras cada corrida del Lakeflow Job, demostrando que no existen duplicaciones y que las reingestas fueron absorbidas limpiamente:
+A continuación se documenta el comportamiento incremental tras cada corrida del Lakeflow Job, contrastando los **registros brutos ingresados en Bronze** contra los **registros limpios conformados en Silver y aislados en Cuarentena**:
 
-| Tabla | Lote 1 (Acumulado) | Lote 2 (Acumulado) | Lote 3 (Final Total) | Observaciones de Integridad |
+#### A. Conteos de Capa Bronze (Archivos Raw Ingresados por Lote)
+| Tabla Bronze | Lote 1 (Acumulado) | Lote 2 (Acumulado) | Lote 3 (Final Total) | Formato y Detalle de Entrega |
+|---|:---:|:---:|:---:|---|
+| `bronze.ventas` | 6.783 | 13.622 | **18.240** | CSV (L1: 6.783, L2: +6.839, L3: +4.618) |
+| `bronze.devoluciones` | 1.387 | 3.091 | **4.217** | CSV (L1: 1.387, L2: +1.704, L3: +1.126) |
+| `bronze.empleados` | 2.257 | 3.524 | **4.448** | CSV (L1: 2.257, L2: +1.267, L3: +924 eventos) |
+| `bronze.catalogo` | 2.305 | 2.400 | **2.400** | JSON Snapshot (Marzo: 2.305, Agosto: 2.400) |
+| `bronze.resenas` | 5.292 | 5.292 | **9.280** | JSON Lines (L1: 5.292, L2: +3.988 en octubre) |
+| `bronze.tracking_envios` | 15.139 | 15.139 | **15.139** | Azure SQL (Carga completa en Corrida 1) |
+| `bronze.sucursales` | 40 | 40 | **40** | CSV (Maestro dimensional fijo) |
+
+#### B. Conteos de Capa Silver y Cuarentena (Datos Conformados y Descartes)
+| Tabla Silver | Lote 1 (Acumulado) | Lote 2 (Acumulado) | Lote 3 (Final Total) | Observaciones de Integridad y Deduplicación |
 |---|:---:|:---:|:---:|---|
 | `silver.ventas` | 6.588 | 13.064 | **17.488** | Deduplicadas por `venta_id`; reingestas no duplican filas. |
 | `silver.devoluciones` | 1.364 | 3.018 | **4.085** | Cruzadas y validadas contra ventas. |
@@ -317,6 +332,12 @@ A continuación se documenta el comportamiento incremental tras cada corrida del
 | `silver.tracking_envios` | 15.139 | 15.139 | **15.139** | Ingesta incremental de Azure SQL completa desde corrida 1. |
 | `silver.sucursales` | 40 | 40 | **40** | Maestro dimensional fijo de 40 tiendas. |
 | **`silver.cuarentena`** | **238** | **501** | **695** | Registros defectuosos aislados y trazables. |
+
+> **Conciliación Matemática de Calidad:**  
+> En las 3 fuentes transaccionales con cuarentena se comprueba la conservación exacta de filas:  
+> * **Ventas:** 18.240 raw en Bronze = 17.488 en Silver + 520 en Cuarentena + 232 reingestas idénticas absorbidas.  
+> * **Devoluciones:** 4.217 raw en Bronze = 4.085 en Silver + 72 en Cuarentena + 60 reingestas idénticas absorbidas.  
+> * **Reseñas:** 9.280 raw en Bronze = 9.097 en Silver + 103 en Cuarentena + 80 reingestas idénticas absorbidas.
 
 ### 6.2. Auditoría Final de Cuarentena (695 Casos Desglosados)
 | Fuente | Motivo de Rechazo | Cantidad | Acción de Protección Tomada |
