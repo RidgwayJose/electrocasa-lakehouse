@@ -1,0 +1,32 @@
+resources:
+  jobs:
+    electrocasa_etl_job:
+      name: "[${bundle.target}] electrocasa_orchestration_job"
+      
+      tasks:
+        # Tarea 1: Ingesta Batch con COPY INTO para fuentes estáticas/snapshots
+        - task_key: ingesta_copy_into
+          notebook_task:
+            notebook_path: ../notebooks/01_ingesta_copy_into.py
+            base_parameters:
+              catalogo: ${var.catalog_name}
+
+        # Tarea 2: Pipeline Medallion principal (Lakeflow Spark Declarative Pipeline)
+        - task_key: pipeline_medallion
+          depends_on:
+            - task_key: ingesta_copy_into
+          pipeline_task:
+            pipeline_id: ${resources.pipelines.electrocasa_pipeline.id}
+            full_refresh: false
+
+        # Tarea 3: Notebook de Validación de Calidad y Conteos
+        - task_key: validacion_calidad
+          depends_on:
+            - task_key: pipeline_medallion
+          notebook_task:
+            notebook_path: ../notebooks/02_validacion_calidad.py
+            base_parameters:
+              catalogo: ${var.catalog_name}
+
+      queue:
+        enabled: true
