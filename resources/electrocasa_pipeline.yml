@@ -1,0 +1,13 @@
+resources:
+  pipelines:
+    electrocasa_pipeline:
+      name: "[${bundle.target}] electrocasa_medallion_pipeline"
+      catalog: ${var.catalog_name}
+      schema: default
+      serverless: true
+      root_path: ../src
+      libraries:
+        - glob:
+            include: ../src/electrocasa/transformations/**
+      configuration:
+        catalog_name: ${var.catalog_name}
