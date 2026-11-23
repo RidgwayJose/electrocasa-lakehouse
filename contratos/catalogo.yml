@@ -44,20 +44,20 @@ columnas:
     regla: "Castear desde string/booleano nativo a boolean (true / false)"
 
 reglas_de_calidad:
-  - nombre: producto_id_obligatorio
+  - nombre: producto_id_pk
     condicion: "producto_id IS NOT NULL"
     politica: fail
     destino_rechazos: "pipeline_failure"
     justificacion: "El identificador del producto es la clave primaria del maestro."
-  - nombre: precio_valido
+  - nombre: precio_positivo
     condicion: "precio_lista IS NOT NULL AND precio_lista > 0"
     politica: drop
-    destino_rechazos: "${catalog}.silver.cuarentena_catalogo"
+    destino_rechazos: "descarte_dlt"
     justificacion: "Precios negativos, cero o nulos distorsionan el margen y las ventas esperadas."
   - nombre: categoria_valida
     condicion: "categoria IN ('cocina', 'linea_blanca', 'electronica', 'climatizacion', 'entretenimiento')"
     politica: drop
-    destino_rechazos: "${catalog}.silver.cuarentena_catalogo"
+    destino_rechazos: "descarte_dlt"
     justificacion: "Toda categoría debe encajar en el catálogo normalizado de 5 líneas."
   - nombre: marca_presente
     condicion: "marca IS NOT NULL AND trim(marca) != ''"

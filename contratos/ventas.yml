@@ -57,7 +57,7 @@ columnas:
       - ecommerce
 
 reglas_de_calidad:
-  - nombre: venta_id_obligatorio
+  - nombre: venta_id_pk
     condicion: "venta_id IS NOT NULL"
     politica: fail
     destino_rechazos: "pipeline_failure"
@@ -65,17 +65,17 @@ reglas_de_calidad:
   - nombre: monto_positivo
     condicion: "monto_total IS NOT NULL AND monto_total > 0"
     politica: drop
-    destino_rechazos: "${catalog}.silver.cuarentena_ventas"
+    destino_rechazos: "${catalog}.silver.cuarentena (fuente = 'ventas')"
     justificacion: "Ventas con monto negativo, cero o nulo representan fallos de captura o cancelaciones que no deben entrar a la contabilidad Silver."
   - nombre: cantidad_positiva
     condicion: "cantidad IS NOT NULL AND cantidad > 0"
     politica: drop
-    destino_rechazos: "${catalog}.silver.cuarentena_ventas"
+    destino_rechazos: "${catalog}.silver.cuarentena (fuente = 'ventas')"
     justificacion: "No se permiten ventas con cantidad 0 o negativa."
   - nombre: sucursal_valida
-    condicion: "sucursal_id IS NOT NULL"
+    condicion: "sucursal_id IS NOT NULL AND trim(sucursal_id) != ''"
     politica: drop
-    destino_rechazos: "${catalog}.silver.cuarentena_ventas"
+    destino_rechazos: "${catalog}.silver.cuarentena (fuente = 'ventas')"
     justificacion: "Toda venta requiere asignación geográfica para liquidación y reporting."
   - nombre: vendedor_valido_en_tienda
     condicion: "(canal = 'ecommerce' AND vendedor_id IS NULL) OR (canal = 'tienda_fisica' AND vendedor_id IS NOT NULL)"

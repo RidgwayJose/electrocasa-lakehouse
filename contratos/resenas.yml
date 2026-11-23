@@ -47,7 +47,7 @@ columnas:
     regla: "Almacenado como VARIANT o STRING JSON nativo para tolerar atributos dinámicos según canal (app, web, tienda)"
 
 reglas_de_calidad:
-  - nombre: resena_id_obligatorio
+  - nombre: resena_id_pk
     condicion: "resena_id IS NOT NULL"
     politica: fail
     destino_rechazos: "pipeline_failure"
@@ -55,13 +55,8 @@ reglas_de_calidad:
   - nombre: calificacion_en_escala
     condicion: "calificacion IS NOT NULL AND calificacion >= 1 AND calificacion <= 5"
     politica: drop
-    destino_rechazos: "${catalog}.silver.cuarentena_resenas"
+    destino_rechazos: "${catalog}.silver.cuarentena (fuente = 'resenas')"
     justificacion: "La escala de satisfacción de ElectroCasa es de 1 a 5 estrellas. Puntuaciones fuera de escala falsean el NPS y los KPIs analíticos."
-  - nombre: producto_id_obligatorio
-    condicion: "producto_id IS NOT NULL"
-    politica: drop
-    destino_rechazos: "${catalog}.silver.cuarentena_resenas"
-    justificacion: "Toda reseña debe pertenecer a un producto."
   - nombre: comentario_presente
     condicion: "comentario IS NOT NULL AND trim(comentario) != ''"
     politica: warn

@@ -48,21 +48,21 @@ columnas:
     nulo: false
 
 reglas_de_calidad:
-  - nombre: devolucion_id_obligatorio
+  - nombre: devolucion_id_pk
     condicion: "devolucion_id IS NOT NULL"
     politica: fail
     destino_rechazos: "pipeline_failure"
     justificacion: "Llave primaria obligatoria de la devolución."
-  - nombre: venta_id_obligatorio
-    condicion: "venta_id IS NOT NULL"
+  - nombre: venta_id_referenciada
+    condicion: "venta_id IS NOT NULL AND trim(venta_id) != ''"
     politica: drop
-    destino_rechazos: "${catalog}.silver.cuarentena_devoluciones"
+    destino_rechazos: "${catalog}.silver.cuarentena (fuente = 'devoluciones')"
     justificacion: "Una devolución no puede registrarse sin referenciar la venta origen."
-  - nombre: reembolso_positivo
-    condicion: "monto_reembolso IS NOT NULL AND monto_reembolso > 0"
+  - nombre: monto_reembolso_valido
+    condicion: "monto_reembolso IS NOT NULL AND monto_reembolso >= 0"
     politica: drop
-    destino_rechazos: "${catalog}.silver.cuarentena_devoluciones"
-    justificacion: "Los montos de reembolso negativos o cero representan errores contables."
+    destino_rechazos: "${catalog}.silver.cuarentena (fuente = 'devoluciones')"
+    justificacion: "Los montos de reembolso negativos representan errores contables."
   - nombre: motivo_presente
     condicion: "motivo IS NOT NULL AND trim(motivo) != ''"
     politica: warn

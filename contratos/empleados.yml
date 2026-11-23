@@ -18,9 +18,9 @@ historizacion:
   tipo: SCD Type 2
   implementacion: "Deduplicación/desempate de eventos diarios por fecha_registro y cálculo de intervalos de vigencia mediante DLT AUTO CDC (apply_changes con stored_as_scd_type=2) o ventanas analíticas sobre fecha_evento."
   columnas_de_vigencia:
-    - __start_at
-    - __end_at
-    - es_actual
+    - __START_AT
+    - __END_AT
+    - es_actual (cuando __END_AT IS NULL)
   orden_de_los_cambios: "fecha_evento ASC, fecha_registro ASC"
   eventos_mismo_dia: "Se utiliza fecha_registro (timestamp en que RR.HH. ingresó la novedad al sistema) para desempatar el orden cronológico estricto de eventos ocurridos en la misma fecha_evento."
   llegada_tardia: "Los eventos que lleguen tarde (ej. eventos de junio registrados en octubre en lote 3) se reincorporan recalculando los rangos de validez histórica por id_empleado sin alterar la inmutabilidad de Bronze."
