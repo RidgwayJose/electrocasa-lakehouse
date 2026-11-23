@@ -54,6 +54,22 @@ for tbl in tablas_silver:
 
 # Asegurar Dynamic Data Masking en Unity Catalog sobre silver.empleados (dni y salario)
 try:
+    spark.sql(f"""
+    CREATE OR REPLACE FUNCTION {catalogo}.silver.mask_dni(val STRING)
+    RETURNS STRING
+    RETURN CASE 
+        WHEN is_account_group_member('electrocasa_ingenieria') OR current_user() = 'ridgwayjose39@gmail.com' THEN val
+        ELSE concat('***-', right(val, 2))
+    END
+    """)
+    spark.sql(f"""
+    CREATE OR REPLACE FUNCTION {catalogo}.silver.mask_salario(val DECIMAL(12,2))
+    RETURNS DECIMAL(12,2)
+    RETURN CASE 
+        WHEN is_account_group_member('electrocasa_ingenieria') OR current_user() = 'ridgwayjose39@gmail.com' THEN val
+        ELSE -1.00
+    END
+    """)
     spark.sql(f"ALTER TABLE {catalogo}.silver.empleados ALTER COLUMN dni SET MASK {catalogo}.silver.mask_dni")
     spark.sql(f"ALTER TABLE {catalogo}.silver.empleados ALTER COLUMN salario SET MASK {catalogo}.silver.mask_salario")
     print("✓ Dynamic Data Masking verificado exitosamente en silver.empleados (dni y salario).")

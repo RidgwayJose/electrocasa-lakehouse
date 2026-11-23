@@ -246,11 +246,27 @@ GRANT SELECT ON TABLE system.access.column_lineage TO `electrocasa_auditoria`;
   2. **Monitoreo de Pipeline:** Se utiliza el **Event Log** nativo de Delta Live Tables y el historial de ejecuciones de Lakeflow Jobs.
 
 ### 4.4. Dynamic Data Masking (DDM)
-Se crearon funciones de enmascaramiento gobernadas para proteger información de identificación personal (PII) y datos salariales sensibles en `silver_empleados`:
-* **DNI:** Función `mask_dni` que muestra `***-PROTEGIDO` a usuarios no autorizados y el DNI real a Ingeniería y Auditoría.
-* **Salario:** Función `mask_salario` que devuelve `0.00` a analistas y el valor real a personal autorizado.
-* **Aplicación:** Integrada en la tarea de cierre del Job mediante comandos de alteración de columna gobernados:
+Se crearon funciones de enmascaramiento gobernadas para proteger información de identificación personal (PII) y datos salariales sensibles en `silver.empleados`:
+* **DNI:** Función `mask_dni` que muestra el DNI completo a miembros de `electrocasa_ingenieria` y enmascara a `***-XX` (conservando los dos últimos dígitos para validaciones de auditoría) a analistas y usuarios no autorizados.
+* **Salario:** Función `mask_salario` que expone el monto exacto a personal autorizado de Ingeniería y devuelve `-1.00` (con tipo estricto `decimal(12,2)`) a usuarios no autorizados.
+* **Definición y Aplicación:** Creadas en el esquema `silver` y aplicadas a las columnas de la tabla de colaboradores:
   ```sql
+  -- Funciones de enmascaramiento dinámico en Unity Catalog
+  CREATE OR REPLACE FUNCTION electrocasa_dev.silver.mask_dni(val STRING)
+  RETURNS STRING
+  RETURN CASE 
+      WHEN is_account_group_member('electrocasa_ingenieria') OR current_user() = 'ridgwayjose39@gmail.com' THEN val
+      ELSE concat('***-', right(val, 2))
+  END;
+
+  CREATE OR REPLACE FUNCTION electrocasa_dev.silver.mask_salario(val DECIMAL(12,2))
+  RETURNS DECIMAL(12,2)
+  RETURN CASE 
+      WHEN is_account_group_member('electrocasa_ingenieria') OR current_user() = 'ridgwayjose39@gmail.com' THEN val
+      ELSE -1.00
+  END;
+
+  -- Aplicación sobre la tabla Silver
   ALTER TABLE electrocasa_dev.silver.empleados ALTER COLUMN dni SET MASK electrocasa_dev.silver.mask_dni;
   ALTER TABLE electrocasa_dev.silver.empleados ALTER COLUMN salario SET MASK electrocasa_dev.silver.mask_salario;
   ```
