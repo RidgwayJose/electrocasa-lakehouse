@@ -271,6 +271,38 @@ Se crearon funciones de enmascaramiento gobernadas para proteger información de
   ALTER TABLE electrocasa_dev.silver.empleados ALTER COLUMN salario SET MASK electrocasa_dev.silver.mask_salario;
   ```
 
+* **Demostración de Consulta de Datos Enmascarados vs. Reales:**
+  
+  **A. Consulta ejecutada por miembro de `electrocasa_ingenieria` (o Pipeline Owner):**
+  ```sql
+  SELECT id_empleado, nombre, dni, salario, cargo 
+  FROM electrocasa_dev.silver.empleados 
+  LIMIT 2;
+  ```
+  ```text
+  +-------------+------------------+----------+---------+------------------+
+  | id_empleado | nombre           | dni      | salario | cargo            |
+  +-------------+------------------+----------+---------+------------------+
+  | EMP-001     | Juan Pérez       | 45892134 | 3200.00 | Vendedor Senior  |
+  | EMP-002     | María Rodríguez  | 71203498 | 2800.00 | Asistente Tienda |
+  +-------------+------------------+----------+---------+------------------+
+  ```
+
+  **B. Consulta ejecutada por miembro de `electrocasa_analistas` (usuario no autorizado):**
+  ```sql
+  SELECT id_empleado, nombre, dni, salario, cargo 
+  FROM electrocasa_dev.silver.empleados 
+  LIMIT 2;
+  ```
+  ```text
+  +-------------+------------------+----------+---------+------------------+
+  | id_empleado | nombre           | dni      | salario | cargo            |
+  +-------------+------------------+----------+---------+------------------+
+  | EMP-001     | Juan Pérez       | ***-34   |   -1.00 | Vendedor Senior  |
+  | EMP-002     | María Rodríguez  | ***-98   |   -1.00 | Asistente Tienda |
+  +-------------+------------------+----------+---------+------------------+
+  ```
+
 * **Consideración de Arquitectura sobre el Dueño del Pipeline (*Pipeline Owner*):**  
   De acuerdo con las directrices de Unity Catalog, el refresco del pipeline ejecuta con los privilegios del propietario del recurso (`ridgwayjose39@gmail.com`). Dado que dicho usuario pertenece al grupo `electrocasa_ingenieria`, el motor de DLT procesa los datos reales de colaboradores sin aplicar el enmascaramiento durante las transformaciones intermedias. Esto asegura que los Data Marts derivados en Gold (`gold.q3_dotacion_activa_mensual` y `gold.q4_ventas_vendedor_historico`) computen rotación, dotación activa y comisiones sobre cifras íntegras, mientras que cualquier usuario externo o analista que consulte las tablas gobernadas recibe los valores enmascarados de forma segura.
 
@@ -538,7 +570,9 @@ electrocasa-lakehouse/
 │   ├── 06_auditoria_system_error.jpg   # Evidencia de restricción en catálogo system
 │   ├── 07_system_lakeflow_not_found.png # Error de tabla no encontrada en system.lakeflow
 │   ├── 08_system_billing_usage.png     # Registros de consumo real en system.billing.usage
-│   └── 09_dlt_event_log_query.jpg      # Consulta ejecutada al Event Log de DLT en SQL Editor
+│   ├── 09_dlt_event_log_query.png      # Consulta ejecutada al Event Log de DLT en SQL Editor
+│   ├── 10_bundle_deploy_cli.png        # Validación estricta y despliegue exitoso con Databricks CLI
+│   └── 11_bundle_resource_explorer.png # Recursos y tareas sincronizados en Bundle Resource Explorer
 └── README.md                           # Documentación técnica y evidencias oficiales
 ```
 
@@ -557,3 +591,9 @@ databricks bundle deploy -t dev
 # 4. Disparar el Lakeflow Job orquestador
 databricks bundle run -t dev electrocasa_etl_job
 ```
+
+![Validación y Despliegue de Bundle con CLI](img/10_bundle_deploy_cli.png)
+*Figura 10: Validación estricta (`bundle validate --strict -t dev`) y despliegue exitoso (`bundle deploy -t dev`) hacia el workspace mediante Databricks CLI.*
+
+![Recursos del Bundle en VS Code](img/11_bundle_resource_explorer.png)
+*Figura 11: Vista del Bundle Resource Explorer en Visual Studio Code evidenciando la orquestación del Job (`electrocasa_orchestration_job`) con sus 3 tareas y el Pipeline Medallion vinculados al catálogo `electrocasa_dev`.*
