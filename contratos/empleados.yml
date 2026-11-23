@@ -1,0 +1,121 @@
+# Contrato de datos: Empleados (RR.HH.)
+# ElectroCasa Lakehouse Platform
+
+fuente: empleados
+version: 1
+ultima_actualizacion: "2026-11-22"
+responsable: "Gestión del Talento Humano (RR.HH.)"
+llegada: "Archivos CSV con encabezado en /Volumes/${catalog}/default/vol_landing/empleados/"
+metodo_ingesta: "Auto Loader (cloudFiles) porque los eventos de personal llegan incrementalmente por lotes (3 lotes con 2.257, 1.267 y 924 filas)."
+frecuencia_esperada: "Lotes periódicos de eventos"
+tabla_bronze: "${catalog}.bronze.empleados"
+tabla_silver: "${catalog}.silver.empleados"
+
+llave_evento: "id_empleado, fecha_evento, fecha_registro"
+llave_entidad: id_empleado
+
+historizacion:
+  tipo: SCD Type 2
+  implementacion: "Deduplicación/desempate de eventos diarios por fecha_registro y cálculo de intervalos de vigencia mediante DLT AUTO CDC (apply_changes con stored_as_scd_type=2) o ventanas analíticas sobre fecha_evento."
+  columnas_de_vigencia:
+    - __start_at
+    - __end_at
+    - es_actual
+  orden_de_los_cambios: "fecha_evento ASC, fecha_registro ASC"
+  eventos_mismo_dia: "Se utiliza fecha_registro (timestamp en que RR.HH. ingresó la novedad al sistema) para desempatar el orden cronológico estricto de eventos ocurridos en la misma fecha_evento."
+  llegada_tardia: "Los eventos que lleguen tarde (ej. eventos de junio registrados en octubre en lote 3) se reincorporan recalculando los rangos de validez histórica por id_empleado sin alterar la inmutabilidad de Bronze."
+
+columnas:
+  - nombre: id_empleado
+    tipo: string
+    nulo: false
+  - nombre: nombre
+    tipo: string
+    nulo: false
+  - nombre: dni
+    tipo: string
+    nulo: true
+    sensible: true
+    masking: "mask_dni(dni) en Unity Catalog (visible solo para electrocasa_ingenieria)"
+  - nombre: email
+    tipo: string
+    nulo: false
+  - nombre: salario
+    tipo: decimal(12,2)
+    nulo: false
+    regla: "Rango válido entre 1000.00 y 30000.00"
+    sensible: true
+    masking: "mask_salario(salario) en Unity Catalog (visible solo para electrocasa_ingenieria)"
+  - nombre: sucursal_id
+    tipo: string
+    nulo: false
+  - nombre: cargo
+    tipo: string
+    nulo: false
+  - nombre: tipo_evento
+    tipo: string
+    nulo: false
+    valores_permitidos:
+      - alta
+      - transferencia
+      - cambio_salario
+      - baja
+  - nombre: fecha_evento
+    tipo: date
+    nulo: false
+  - nombre: fecha_registro
+    tipo: timestamp
+    nulo: false
+
+reglas_de_calidad:
+  - nombre: id_empleado_obligatorio
+    condicion: "id_empleado IS NOT NULL"
+    politica: fail
+    destino_rechazos: "pipeline_failure"
+    justificacion: "La llave primaria del colaborador no puede ser nula."
+  - nombre: fecha_evento_obligatoria
+    condicion: "fecha_evento IS NOT NULL"
+    politica: drop
+    destino_rechazos: "${catalog}.silver.cuarentena_empleados"
+    justificacion: "No se puede historizar un cambio de estado sin fecha efectiva del evento."
+  - nombre: tipo_evento_valido
+    condicion: "tipo_evento IN ('alta', 'transferencia', 'cambio_salario', 'baja')"
+    politica: drop
+    destino_rechazos: "${catalog}.silver.cuarentena_empleados"
+    justificacion: "Los eventos deben encajar exactamente en la máquina de estados de RR.HH."
+  - nombre: salario_en_rango
+    condicion: "salario >= 1000.00 AND salario <= 30000.00"
+    politica: warn
+    destino_rechazos: "metrics_log"
+    justificacion: "Detecta salarios con errores de digitación de un orden de magnitud fuera de escala."
+  - nombre: dni_presente
+    condicion: "dni IS NOT NULL AND length(trim(dni)) = 8"
+    politica: warn
+    destino_rechazos: "metrics_log"
+    justificacion: "Advierte DNIs faltantes o con formato inválido para auditoría sin descartar el histórico del colaborador."
+
+transformaciones_silver:
+  - "Normalización de tipo_evento con helpers.normalize_employee_event mapeando 13 variantes (incluido 'cese' -> 'baja')."
+  - "Limpieza y casteo de salario con helpers.clean_currency_amount a decimal(12,2)."
+  - "Parseo tolerante de fecha_evento a date y fecha_registro a timestamp."
+  - "Desempate cronológico de eventos concurrentes el mismo día mediante fecha_registro."
+  - "Generación de registros SCD Tipo 2 (vigencia de contratos y cargos)."
+  - "Aplicación de máscaras dinámicas de seguridad para dni y salario."
+
+problemas_conocidos:
+  - problema: "13 variantes en tipo_evento"
+    ejemplo: "'alta', 'ALTA', 'Alta', 'cambio_salario', 'Cambio Salario', 'cese', 'BAJA'"
+    filas_afectadas: "13 variantes en 2.257 filas"
+    tratamiento: "normalize_employee_event hacia los 4 estados canónicos."
+  - problema: "Eventos múltiples en el mismo día para el mismo empleado"
+    ejemplo: "Mismo id_empleado con fecha_evento repetida"
+    filas_afectadas: "26 filas en Lote 1"
+    tratamiento: "Ordenamiento explícito por fecha_registro para determinar la secuencia correcta."
+  - problema: "DNI nulos o duplicados entre empleados"
+    ejemplo: "DNI vacíos o asignados a más de un id_empleado por error humano"
+    filas_afectadas: "28 DNI nulos y 5 DNI compartidos entre distintos colaboradores"
+    tratamiento: "Alerta de calidad (warn) y preservación de id_empleado como entidad rectora."
+  - problema: "Fechas de evento vacías"
+    ejemplo: "fecha_evento = null"
+    filas_afectadas: "18 filas"
+    tratamiento: "Expectativa @dlt.expect_or_drop(fecha_evento_obligatoria)."

@@ -1,0 +1,113 @@
+# Contrato de datos: Ventas
+# ElectroCasa Lakehouse Platform
+
+fuente: ventas
+version: 1
+ultima_actualizacion: "2026-11-22"
+responsable: "Operaciones Comerciales / Finanzas"
+llegada: "Archivos CSV con encabezado en /Volumes/${catalog}/default/vol_landing/ventas/"
+metodo_ingesta: "Auto Loader (cloudFiles) porque los datos llegan periódicamente en lotes incrementales (mayo, agosto, octubre) y requiere detección continua y schema inference/evolution tolerante."
+frecuencia_esperada: "Lotes periódicos trimestrales / mensuales"
+tabla_bronze: "${catalog}.bronze.ventas"
+tabla_silver: "${catalog}.silver.ventas"
+llave: venta_id
+
+columnas:
+  - nombre: venta_id
+    tipo: string
+    nulo: false
+  - nombre: sucursal_id
+    tipo: string
+    nulo: false
+    regla: "Descartar si es nula; debe referenciar una sucursal física o virtual de despacho"
+  - nombre: producto_id
+    tipo: string
+    nulo: false
+    regla: "Debe existir en silver.catalogo"
+  - nombre: vendedor_id
+    tipo: string
+    nulo: true
+    regla: "Nulo por diseño en canal ecommerce; obligatorio en tienda_fisica"
+  - nombre: cantidad
+    tipo: int
+    nulo: false
+    regla: "Debe ser estrictamente mayor a 0"
+  - nombre: monto_total
+    tipo: decimal(12,2)
+    nulo: false
+    regla: "Debe ser estrictamente mayor a 0; procesar previamente comas y puntos decimales"
+  - nombre: metodo_pago
+    tipo: string
+    nulo: false
+    valores_permitidos:
+      - tarjeta_credito
+      - tarjeta_debito
+      - efectivo
+      - billetera_digital
+      - transferencia
+  - nombre: fecha_venta
+    tipo: date
+    nulo: false
+    regla: "Parseada con try_to_date multiformato (yyyy-MM-dd, dd/MM/yyyy, yyyy-MM-ddTHH:mm:ss)"
+  - nombre: canal
+    tipo: string
+    nulo: false
+    valores_permitidos:
+      - tienda_fisica
+      - ecommerce
+
+reglas_de_calidad:
+  - nombre: venta_id_obligatorio
+    condicion: "venta_id IS NOT NULL"
+    politica: fail
+    destino_rechazos: "pipeline_failure"
+    justificacion: "La llave primaria de la transacción no puede ser nula bajo ninguna circunstancia."
+  - nombre: monto_positivo
+    condicion: "monto_total IS NOT NULL AND monto_total > 0"
+    politica: drop
+    destino_rechazos: "${catalog}.silver.cuarentena_ventas"
+    justificacion: "Ventas con monto negativo, cero o nulo representan fallos de captura o cancelaciones que no deben entrar a la contabilidad Silver."
+  - nombre: cantidad_positiva
+    condicion: "cantidad IS NOT NULL AND cantidad > 0"
+    politica: drop
+    destino_rechazos: "${catalog}.silver.cuarentena_ventas"
+    justificacion: "No se permiten ventas con cantidad 0 o negativa."
+  - nombre: sucursal_valida
+    condicion: "sucursal_id IS NOT NULL"
+    politica: drop
+    destino_rechazos: "${catalog}.silver.cuarentena_ventas"
+    justificacion: "Toda venta requiere asignación geográfica para liquidación y reporting."
+  - nombre: vendedor_valido_en_tienda
+    condicion: "(canal = 'ecommerce' AND vendedor_id IS NULL) OR (canal = 'tienda_fisica' AND vendedor_id IS NOT NULL)"
+    politica: warn
+    destino_rechazos: "metrics_log"
+    justificacion: "Alerta de control si una venta física no registra el vendedor que comisiona."
+
+transformaciones_silver:
+  - "Normalización de monto_total mediante helpers.clean_currency_amount: reemplaza comas decimales por puntos y castea a decimal(12,2)."
+  - "Parseo tolerante de fecha_venta con helpers.parse_multiformat_date soportando 'yyyy-MM-dd', 'dd/MM/yyyy' y timestamps ISO sin abortar en modo ANSI."
+  - "Estandarización de metodo_pago con helpers.normalize_payment_method consolidando las 17 variantes en los 5 valores permitidos."
+  - "Deduplicación por venta_id preservando el registro más reciente en caso de retransmisión de lotes."
+  - "Derivación de metadatos de auditoría: _ingested_at (timestamp de ingesta) y _source_file."
+
+problemas_conocidos:
+  - problema: "Variaciones excesivas en metodo_pago"
+    ejemplo: "PLIN, Plin, YAPE, yape, EFV, Efectivo, TC, td, Tarjeta de credito"
+    filas_afectadas: "17 variantes a lo largo de 6.783 filas"
+    tratamiento: "Función normalize_payment_method con expresiones regulares sobre catálogo cerrado de 5 opciones."
+  - problema: "Monto total con coma decimal o nulo"
+    ejemplo: "'1.234,50' y 58 filas con monto nulo"
+    filas_afectadas: "92 filas con formato coma decimal, 58 filas nulas"
+    tratamiento: "clean_currency_amount y expectativa @dlt.expect_or_drop(monto_positivo)."
+  - problema: "Cantidad en cero"
+    ejemplo: "cantidad = 0"
+    filas_afectadas: "22 filas"
+    tratamiento: "Expectativa @dlt.expect_or_drop(cantidad_positiva)."
+  - problema: "Sucursal nula"
+    ejemplo: "sucursal_id = null"
+    filas_afectadas: "32 filas"
+    tratamiento: "Expectativa @dlt.expect_or_drop(sucursal_valida)."
+  - problema: "Múltiples formatos en fecha_venta"
+    ejemplo: "'2026-06-07', '07/06/2026', '2026-06-07T14:30:00'"
+    filas_afectadas: "5.446 ISO, 776 DD/MM/YYYY, 561 con timestamp"
+    tratamiento: "Función parse_multiformat_date usando coalesce con try_to_date."

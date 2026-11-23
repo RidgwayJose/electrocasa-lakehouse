@@ -1,0 +1,91 @@
+# Contrato de datos: Devoluciones
+# ElectroCasa Lakehouse Platform
+
+fuente: devoluciones
+version: 1
+ultima_actualizacion: "2026-11-22"
+responsable: "Servicio Postventa / Logística Inversa"
+llegada: "Archivos CSV con encabezado en /Volumes/${catalog}/default/vol_landing/devoluciones/"
+metodo_ingesta: "Auto Loader (cloudFiles) por la llegada periódica de 3 lotes incrementales (1.387, 1.704 y 1.126 filas)."
+frecuencia_esperada: "Lotes periódicos trimestrales"
+tabla_bronze: "${catalog}.bronze.devoluciones"
+tabla_silver: "${catalog}.silver.devoluciones"
+llave: devolucion_id
+depende_de:
+  - fuente: ventas
+    columna: venta_id
+
+columnas:
+  - nombre: devolucion_id
+    tipo: string
+    nulo: false
+  - nombre: venta_id
+    tipo: string
+    nulo: false
+    regla: "Debe existir en silver.ventas; si no existe, desviar a cuarentena"
+  - nombre: sucursal_id
+    tipo: string
+    nulo: false
+  - nombre: producto_id
+    tipo: string
+    nulo: false
+  - nombre: motivo
+    tipo: string
+    nulo: false
+    valores_permitidos:
+      - envio_incorrecto
+      - producto_defectuoso
+      - arrepentimiento
+      - garantia
+      - no_cumple_expectativas
+      - no_especificado
+  - nombre: monto_reembolso
+    tipo: decimal(12,2)
+    nulo: false
+    regla: "Debe ser estrictamente positivo y menor o igual al monto_total de la venta original"
+  - nombre: fecha_devolucion
+    tipo: date
+    nulo: false
+
+reglas_de_calidad:
+  - nombre: devolucion_id_obligatorio
+    condicion: "devolucion_id IS NOT NULL"
+    politica: fail
+    destino_rechazos: "pipeline_failure"
+    justificacion: "Llave primaria obligatoria de la devolución."
+  - nombre: venta_id_obligatorio
+    condicion: "venta_id IS NOT NULL"
+    politica: drop
+    destino_rechazos: "${catalog}.silver.cuarentena_devoluciones"
+    justificacion: "Una devolución no puede registrarse sin referenciar la venta origen."
+  - nombre: reembolso_positivo
+    condicion: "monto_reembolso IS NOT NULL AND monto_reembolso > 0"
+    politica: drop
+    destino_rechazos: "${catalog}.silver.cuarentena_devoluciones"
+    justificacion: "Los montos de reembolso negativos o cero representan errores contables."
+  - nombre: motivo_presente
+    condicion: "motivo IS NOT NULL AND trim(motivo) != ''"
+    politica: warn
+    destino_rechazos: "metrics_log"
+    justificacion: "Se permite imputar a 'no_especificado' registrando advertencia para calidad postventa."
+
+transformaciones_silver:
+  - "Limpieza de monto_reembolso con helpers.clean_currency_amount y casteo a decimal(12,2)."
+  - "Imputación de motivos vacíos o nulos con coalesce(trim(motivo), 'no_especificado')."
+  - "Parseo tolerante de fecha_devolucion a date con helpers.parse_multiformat_date."
+  - "Validación de integridad referencial contra silver.ventas: descartar o enviar a cuarentena devoluciones huérfanas."
+  - "Deduplicación por devolucion_id."
+
+problemas_conocidos:
+  - problema: "Monto de reembolso negativo"
+    ejemplo: "monto_reembolso = -120.00"
+    filas_afectadas: "14 filas en Lote 1"
+    tratamiento: "Expectativa @dlt.expect_or_drop(reembolso_positivo)."
+  - problema: "Motivos vacíos o nulos"
+    ejemplo: "motivo = null"
+    filas_afectadas: "30 filas en Lote 1"
+    tratamiento: "Imputación con coalesce a 'no_especificado' y regla warn."
+  - problema: "Venta_id nula o huérfana"
+    ejemplo: "venta_id = null o ID que no existe en ventas"
+    filas_afectadas: "10 filas con venta_id nula"
+    tratamiento: "Expectativa @dlt.expect_or_drop(venta_id_obligatorio)."

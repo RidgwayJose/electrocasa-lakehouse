@@ -1,0 +1,96 @@
+# Contrato de datos: Tracking de envíos
+# ElectroCasa Lakehouse Platform
+
+fuente: tracking_envios
+version: 1
+ultima_actualizacion: "2026-11-22"
+responsable: "Logística Courier / ElectroCasa"
+llegada: "Azure SQL Database (srvsqldmc.database.windows.net, bd electrocasadb), tabla dbo.TrackingEnvios"
+metodo_ingesta: "Conector query-based de SQL Server (Lakeflow Connect)"
+connection_unity_catalog: "conn_sqlserver_electrocasa"
+cursor: fecha_modificacion
+modo_historia: "Append Only o SCD Type 1 con llave evento_id (justificado porque evento_id es la clave técnica única de cada cambio de estado; tracking_id se repite por diseño para un mismo paquete)."
+frecuencia_esperada: "Ejecución incremental programada en Job (15.139 eventos en la carga inicial y 0 filas nuevas en reejecución sin cambios)"
+tabla_bronze: "${catalog}.bronze.tracking_envios"
+tabla_silver: "${catalog}.silver.tracking_envios"
+llave: evento_id
+depende_de:
+  - fuente: ventas
+    columna: venta_id
+
+columnas:
+  - nombre: evento_id
+    tipo: int
+    nulo: false
+    regla: "Llave primaria técnica del evento; nunca usar tracking_id como llave del conector"
+  - nombre: tracking_id
+    tipo: string
+    nulo: false
+    regla: "Identificador del paquete del courier (se repite por diseño en múltiples eventos)"
+  - nombre: venta_id
+    tipo: string
+    nulo: false
+    regla: "Debe referenciar una venta del canal ecommerce"
+  - nombre: courier
+    tipo: string
+    nulo: false
+    regla: "Estandarizar casing y espacios"
+  - nombre: estado_entrega
+    tipo: string
+    nulo: false
+    valores_permitidos:
+      - creado
+      - en_camino
+      - en_transito
+      - entregado
+      - fallido
+      - devuelto
+  - nombre: sucursal_origen
+    tipo: string
+    nulo: false
+  - nombre: fecha_actualizacion
+    tipo: date
+    nulo: true
+    regla: "Si viene nula, imputar con to_date(fecha_modificacion)"
+  - nombre: fecha_modificacion
+    tipo: timestamp
+    nulo: false
+    regla: "Columna cursor técnica del conector incremental"
+
+reglas_de_calidad:
+  - nombre: evento_id_pk
+    condicion: "evento_id IS NOT NULL"
+    politica: fail
+    destino_rechazos: "pipeline_failure"
+    justificacion: "La clave primaria técnica de evento_id no puede ser nula."
+  - nombre: estado_entrega_valido
+    condicion: "estado_entrega IS NOT NULL"
+    politica: warn
+    destino_rechazos: "metrics_log"
+    justificacion: "Permite auditar estados no previstos por los couriers."
+  - nombre: fecha_modificacion_obligatoria
+    condicion: "fecha_modificacion IS NOT NULL"
+    politica: fail
+    destino_rechazos: "pipeline_failure"
+    justificacion: "El cursor de CDC incremental no puede ser nulo."
+
+transformaciones_silver:
+  - "Normalización de estado_entrega: trim, lower y mapeo de sinónimos ('en transito', 'en_transito', 'en camino' -> 'en_camino')."
+  - "Estandarización de courier con initcap(trim(courier))."
+  - "Imputación de fecha_actualizacion nula mediante coalesce(fecha_actualizacion, to_date(fecha_modificacion))."
+  - "Deduplicación de eventos duplicados por tracking_id y estado_entrega si ocurren con fecha idéntica."
+  - "Validación contra silver.ventas (canal ecommerce)."
+
+problemas_conocidos:
+  - problema: "Tracking_id repetido por diseño"
+    ejemplo: "Múltiples filas para el mismo paquete conforme avanza en la ruta"
+    filas_afectadas: "Afecta a la totalidad de los 15.139 eventos"
+    tratamiento: "Uso estricto de evento_id como llave primaria técnica para el conector Lakeflow Connect."
+  - problema: "Inconsistencias de casing en courier y estado_entrega"
+    ejemplo: "'En camino', 'EN_CAMINO', 'en_transito', 'olva', 'OLVA'"
+    filas_afectadas: "Dispersas a lo largo de la tabla"
+    tratamiento: "Funciones lower, trim y mapeo controlado a catálogo cerrado."
+  - problema: "Fecha de actualización nula"
+    ejemplo: "fecha_actualizacion = null"
+    filas_afectadas: "Eventos donde el courier no transmitió la fecha de negocio"
+    tratamiento: "Imputación con coalesce(fecha_actualizacion, to_date(fecha_modificacion))."

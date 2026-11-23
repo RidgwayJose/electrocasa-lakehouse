@@ -1,0 +1,91 @@
+# Contrato de datos: Catálogo de productos
+# ElectroCasa Lakehouse Platform
+
+fuente: catalogo
+version: 1
+ultima_actualizacion: "2026-11-22"
+responsable: "Gestión de Productos / Compras"
+llegada: "Archivos JSON (un único arreglo multiline por archivo) en /Volumes/${catalog}/default/vol_landing/catalogo/"
+metodo_ingesta: "COPY INTO con opciones FORMAT = JSON, multiLine = true y primitivesAsString = true, debido a que son snapshots completos del inventario y primitivesAsString evita errores DELTA_FAILED_TO_MERGE_FIELDS al inferir booleanos en campos de texto."
+frecuencia_esperada: "Snapshots periódicos (marzo y agosto)"
+tipo_entrega: "Snapshot completo (cada archivo sobreescribe o actualiza el catálogo total)"
+tabla_bronze: "${catalog}.bronze.catalogo"
+tabla_silver: "${catalog}.silver.catalogo"
+llave: producto_id
+historizacion: "SCD Tipo 1 / Upsert por producto_id. Los productos descontinuados (activo = false) se mantienen en Silver con dicho flag para garantizar integridad referencial histórica con ventas."
+
+columnas:
+  - nombre: producto_id
+    tipo: string
+    nulo: false
+  - nombre: nombre_producto
+    tipo: string
+    nulo: false
+  - nombre: categoria
+    tipo: string
+    nulo: false
+    valores_permitidos:
+      - cocina
+      - linea_blanca
+      - electronica
+      - climatizacion
+      - entretenimiento
+  - nombre: marca
+    tipo: string
+    nulo: true
+    regla: "Si viene nula, imputar a 'Generico' o registrar alerta"
+  - nombre: precio_lista
+    tipo: decimal(12,2)
+    nulo: false
+    regla: "Debe ser estrictamente positivo; limpiar símbolo 'S/', comas y espacios"
+  - nombre: activo
+    tipo: boolean
+    nulo: false
+    regla: "Castear desde string/booleano nativo a boolean (true / false)"
+
+reglas_de_calidad:
+  - nombre: producto_id_obligatorio
+    condicion: "producto_id IS NOT NULL"
+    politica: fail
+    destino_rechazos: "pipeline_failure"
+    justificacion: "El identificador del producto es la clave primaria del maestro."
+  - nombre: precio_valido
+    condicion: "precio_lista IS NOT NULL AND precio_lista > 0"
+    politica: drop
+    destino_rechazos: "${catalog}.silver.cuarentena_catalogo"
+    justificacion: "Precios negativos, cero o nulos distorsionan el margen y las ventas esperadas."
+  - nombre: categoria_valida
+    condicion: "categoria IN ('cocina', 'linea_blanca', 'electronica', 'climatizacion', 'entretenimiento')"
+    politica: drop
+    destino_rechazos: "${catalog}.silver.cuarentena_catalogo"
+    justificacion: "Toda categoría debe encajar en el catálogo normalizado de 5 líneas."
+  - nombre: marca_presente
+    condicion: "marca IS NOT NULL AND trim(marca) != ''"
+    politica: warn
+    destino_rechazos: "metrics_log"
+    justificacion: "Advertir productos sin marca para completar catalogación sin frenar el flujo."
+
+transformaciones_silver:
+  - "Limpieza de precio_lista con helpers.clean_currency_amount eliminando prefijo 'S/', espacios y comas de miles antes de castear a decimal(12,2)."
+  - "Normalización de categoria con helpers.normalize_category mapeando las 17 variantes a los 5 dominios autorizados."
+  - "Casteo seguro de activo a boolean: when(lower(activo).isin('true', '1'), True).otherwise(False)."
+  - "Deduplicación por producto_id en el snapshot (ej. marzo) ordenando por precio válido o mayor completitud."
+  - "Imputación de marcas nulas con coalesce(trim(marca), 'Generico')."
+
+problemas_conocidos:
+  - problema: "Precios con moneda o formato texto"
+    ejemplo: "'S/ 1,299.90', valores negativos (-150.00) y nulos"
+    filas_afectadas: "49 con símbolo S/, 18 negativos y 12 nulos"
+    tratamiento: "clean_currency_amount para limpiar texto y @dlt.expect_or_drop(precio_valido)."
+  - problema: "Categorías con ortografía y casing mixto"
+    ejemplo: "'Climatizacion', 'CLIMATIZACION', 'Línea blanca', 'LINEA BLANCA', 'Electrónica'"
+    filas_afectadas: "17 variantes para 5 categorías a lo largo de 2.305 filas"
+    tratamiento: "normalize_category con expresiones regulares hacia catálogo estándar."
+  - problema: "Productos duplicados en snapshot marzo"
+    ejemplo: "producto_id que aparece 2 veces con precios distintos"
+    filas_afectadas: "50 registros (25 productos duplicados)"
+    tratamiento: "row_number() particionado por producto_id priorizando precio no nulo y mayor completitud."
+  - problema: "Marcas nulas"
+    ejemplo: "marca = null"
+    filas_afectadas: "46 filas"
+    tratamiento: "Imputación a 'Generico' y advertencia en reglas de calidad."

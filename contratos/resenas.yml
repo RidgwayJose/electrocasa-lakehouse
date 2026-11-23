@@ -1,0 +1,94 @@
+# Contrato de datos: Reseñas de clientes
+# ElectroCasa Lakehouse Platform
+
+fuente: resenas
+version: 1
+ultima_actualizacion: "2026-11-22"
+responsable: "Experiencia del Cliente (CX) / Marketing"
+llegada: "Archivos JSON Lines (un objeto JSON por línea) en /Volumes/${catalog}/default/vol_landing/resenas/"
+metodo_ingesta: "Auto Loader (cloudFiles, format: json) porque los archivos llegan por lotes semestrales (5.292 y 3.988 filas) con esquema semiestructurado y campos anidados."
+frecuencia_esperada: "Lotes trimestrales / semestrales"
+tabla_bronze: "${catalog}.bronze.resenas"
+tabla_silver: "${catalog}.silver.resenas"
+llave: resena_id
+
+columnas:
+  - nombre: resena_id
+    tipo: string
+    nulo: false
+  - nombre: producto_id
+    tipo: string
+    nulo: false
+    regla: "Debe existir en silver.catalogo"
+  - nombre: cliente_id
+    tipo: string
+    nulo: false
+  - nombre: calificacion
+    tipo: int
+    nulo: false
+    regla: "Estrictamente entre 1 y 5 (descartar 0, 6 o valores nulos)"
+  - nombre: comentario
+    tipo: string
+    nulo: true
+  - nombre: tags
+    tipo: "array<string>"
+    nulo: false
+    regla: "Si llega nulo en origen, se estandariza a arreglo vacío array()"
+  - nombre: respuestas
+    tipo: "array<struct<autor:string,texto:string,fecha:string>>"
+    nulo: true
+  - nombre: fecha_resena
+    tipo: date
+    nulo: false
+    regla: "Parseada con try_to_date en formatos yyyy-MM-dd y dd/MM/yyyy"
+  - nombre: metadata
+    tipo: variant
+    nulo: false
+    regla: "Almacenado como VARIANT o STRING JSON nativo para tolerar atributos dinámicos según canal (app, web, tienda)"
+
+reglas_de_calidad:
+  - nombre: resena_id_obligatorio
+    condicion: "resena_id IS NOT NULL"
+    politica: fail
+    destino_rechazos: "pipeline_failure"
+    justificacion: "Identificador único de la reseña obligatorio."
+  - nombre: calificacion_en_escala
+    condicion: "calificacion IS NOT NULL AND calificacion >= 1 AND calificacion <= 5"
+    politica: drop
+    destino_rechazos: "${catalog}.silver.cuarentena_resenas"
+    justificacion: "La escala de satisfacción de ElectroCasa es de 1 a 5 estrellas. Puntuaciones fuera de escala falsean el NPS y los KPIs analíticos."
+  - nombre: producto_id_obligatorio
+    condicion: "producto_id IS NOT NULL"
+    politica: drop
+    destino_rechazos: "${catalog}.silver.cuarentena_resenas"
+    justificacion: "Toda reseña debe pertenecer a un producto."
+  - nombre: comentario_presente
+    condicion: "comentario IS NOT NULL AND trim(comentario) != ''"
+    politica: warn
+    destino_rechazos: "metrics_log"
+    justificacion: "Permitir calificaciones sin texto pero registrar advertencia para análisis de sentimiento."
+
+transformaciones_silver:
+  - "Filtro de calificaciones fuera de rango (0, 6 y nulos) mediante @dlt.expect_or_drop."
+  - "Conversión de tags nulos a array vacío mediante coalesce(tags, array())."
+  - "Normalización de fecha_resena con helpers.parse_multiformat_date."
+  - "Preservación del objeto semiestructurado metadata en formato VARIANT para queries semiestructuradas con notación punto (metadata:dispositivo)."
+  - "Deduplicación por resena_id."
+
+problemas_conocidos:
+  - problema: "Calificaciones fuera de escala y nulas"
+    ejemplo: "calificacion = 0, calificacion = 6, calificacion = NaN"
+    filas_afectadas: "17 filas con 0, 25 filas con 6 y 24 nulos en Lote 1"
+    tratamiento: "Expectativa @dlt.expect_or_drop(calificacion_en_escala)."
+  - problema: "Tags nulos en lugar de lista vacía"
+    ejemplo: "tags = null"
+    filas_afectadas: "45 filas"
+    tratamiento: "coalesce(tags, array())."
+  - problema: "Comentarios vacíos o nulos"
+    ejemplo: "comentario = null"
+    filas_afectadas: "25 filas"
+    tratamiento: "Aceptados con política warn."
+  - problema: "Estructura heterogénea en metadata según canal"
+    ejemplo: "app tiene version_app y os; web tiene browser; tienda tiene kiosko_id"
+    filas_afectadas: "100% de los registros (app: 2.645, web: 1.878, tienda: 769)"
+    tratamiento: "Uso del tipo de dato nativo VARIANT de Delta Lake."

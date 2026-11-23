@@ -1,0 +1,58 @@
+# Contrato de datos: Sucursales (referencia)
+# ElectroCasa Lakehouse Platform
+
+fuente: sucursales
+version: 1
+ultima_actualizacion: "2026-11-22"
+responsable: "Operaciones Inmobiliarias / Retail"
+llegada: "Archivo CSV estático sucursales.csv en /Volumes/${catalog}/default/vol_landing/sucursales/"
+metodo_ingesta: "COPY INTO o lectura batch directa porque es una tabla de referencia pequeña y estática de 40 registros."
+frecuencia_esperada: "Carga única (actualización esporádica por apertura o cierre de tiendas)"
+tabla_bronze: "${catalog}.bronze.sucursales"
+tabla_silver: "${catalog}.silver.sucursales"
+llave: sucursal_id
+
+columnas:
+  - nombre: sucursal_id
+    tipo: string
+    nulo: false
+  - nombre: nombre_sucursal
+    tipo: string
+    nulo: false
+  - nombre: distrito
+    tipo: string
+    nulo: false
+  - nombre: ciudad
+    tipo: string
+    nulo: false
+    regla: "Normalizar casing a formato capital (initcap)"
+  - nombre: region
+    tipo: string
+    nulo: false
+  - nombre: fecha_apertura
+    tipo: date
+    nulo: false
+
+reglas_de_calidad:
+  - nombre: sucursal_id_pk
+    condicion: "sucursal_id IS NOT NULL"
+    politica: fail
+    destino_rechazos: "pipeline_failure"
+    justificacion: "La clave primaria de la sucursal es innegociable."
+  - nombre: ciudad_valida
+    condicion: "ciudad IS NOT NULL AND trim(ciudad) != ''"
+    politica: fail
+    destino_rechazos: "pipeline_failure"
+    justificacion: "Toda sucursal debe tener asignada una ciudad válida para liquidación regional."
+
+transformaciones_silver:
+  - "Normalización de casing en ciudad mediante initcap(trim(ciudad)) para unificar variantes como 'AREQUIPA' y 'PIURA' con 'Arequipa' y 'Piura'."
+  - "Estandarización de espacios en distrito y nombre_sucursal con trim()."
+  - "Casteo seguro de fecha_apertura a date."
+  - "Deduplicación por sucursal_id."
+
+problemas_conocidos:
+  - problema: "Casing inconsistente en ciudad"
+    ejemplo: "'AREQUIPA' y 'PIURA' en mayúsculas sostenidas"
+    filas_afectadas: "2 filas (1 AREQUIPA, 1 PIURA)"
+    tratamiento: "Uso de función nativa initcap(trim(ciudad)) en la capa Silver."
