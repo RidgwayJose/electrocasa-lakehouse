@@ -39,11 +39,9 @@ columnas:
     tipo: string
     nulo: false
     valores_permitidos:
-      - creado
-      - en_camino
+      - pendiente
       - en_transito
       - entregado
-      - fallido
       - devuelto
   - nombre: sucursal_origen
     tipo: string
@@ -64,10 +62,10 @@ reglas_de_calidad:
     destino_rechazos: "pipeline_failure"
     justificacion: "La clave primaria técnica de evento_id no puede ser nula."
   - nombre: estado_entrega_valido
-    condicion: "estado_entrega IS NOT NULL"
+    condicion: "estado_entrega IN ('pendiente', 'en_transito', 'entregado', 'devuelto')"
     politica: warn
     destino_rechazos: "metrics_log"
-    justificacion: "Permite auditar estados no previstos por los couriers."
+    justificacion: "Garantiza que el estado pertenezca al conjunto cerrado exigido por la pauta."
   - nombre: fecha_modificacion_obligatoria
     condicion: "fecha_modificacion IS NOT NULL"
     politica: fail
@@ -75,7 +73,7 @@ reglas_de_calidad:
     justificacion: "El cursor de CDC incremental no puede ser nulo."
 
 transformaciones_silver:
-  - "Normalización de estado_entrega: trim, lower y mapeo de sinónimos ('en transito', 'en_transito', 'en camino' -> 'en_camino')."
+  - "Normalización de estado_entrega: trim, lower y mapeo de sinónimos al conjunto cerrado oficial ('pendiente', 'en_transito', 'entregado', 'devuelto')."
   - "Estandarización de courier con initcap(trim(courier))."
   - "Imputación de fecha_actualizacion nula mediante coalesce(fecha_actualizacion, to_date(fecha_modificacion))."
   - "Deduplicación de eventos duplicados por tracking_id y estado_entrega si ocurren con fecha idéntica."
