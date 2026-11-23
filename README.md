@@ -1,13 +1,12 @@
 # ElectroCasa — Plataforma de Datos Lakehouse
 
-[![Databricks](https://img.shields.io/badge/Platform-Databricks%20Lakehouse-orange?logo=databricks)](https://databricks.com)
+[![Databricks](https://img.shields.io/badge/Databricks-Lakehouse-orange?logo=databricks)](https://databricks.com)
 [![Runtime](https://img.shields.io/badge/Compute-Serverless-blue)](#)
 [![Unity Catalog](https://img.shields.io/badge/Governance-Unity%20Catalog-green)](#)
-[![CI/CD](https://img.shields.io/badge/Deployment-Databricks%20Asset%20Bundles%20(DABs)-purple)](#)
-[![Calidad](https://img.shields.io/badge/Quality-Lakeflow%20SDP%20Expectations-brightgreen)](#)
+[![CI/CD](https://img.shields.io/badge/Deploy-DABs-purple)](#)
 
-Proyecto Integrador de la **Especialización en Databricks** (Edición 15).  
-Implementación integral de una plataforma analítica empresarial moderna bajo arquitectura Medallion, orquestada mediante **Databricks Lakeflow Jobs**, gobernada con **Unity Catalog**, estructurada como código con **Databricks Asset Bundles (DABs)** y procesando 3 lotes incrementales sobre cómputo Serverless.
+**Proyecto Integrador — Especialización en Databricks (Edición 15)**  
+Pipeline de datos Medallion de extremo a extremo implementado sobre Databricks Serverless (Free Edition). Procesa 3 lotes incrementales de 7 fuentes heterogéneas, orquestado con Databricks Lakeflow Jobs, gobernado mediante Unity Catalog y desplegado como infraestructura como código mediante Databricks Asset Bundles (DABs).
 
 ---
 
@@ -121,7 +120,7 @@ La fuerza laboral de ElectroCasa experimenta altas, transferencias entre sucursa
 * Manejo de llegadas tardías: Los eventos de meses anteriores que RR.HH. registra en lotes posteriores se ubican automáticamente en el intervalo temporal exacto sin corromper la versión actual.
 * Columnas históricas generadas automáticamente por Spark Declarative Pipelines: `__START_AT` y `__END_AT`.
 
-### 2.4. Justificación de Decisiones de Diseño ("Decisiones que tomas tú")
+### 2.4. Decisiones de Diseño
 1. **Referencias huérfanas:** Las ventas, devoluciones o reseñas que referencian productos o ventas inexistentes se aíslan en `silver.cuarentena` (o se excluyen en los joins de Gold) para asegurar que ningún KPI de recaudación neta o calificación se distorsione con datos espurios.
 2. **Mismo DNI en dos empleados distintos:** Se prioriza `id_empleado` como clave primaria técnica en SCD2, reconociendo que el DNI repetido proviene de un error humano de digitación en RR.HH., evitando la colisión de historiales.
 3. **Salarios fuera de rango:** Se normalizan y parsean a `decimal(12,2)`. Las aserciones de auditoría aíslan anomalías extremas para revisión sin truncar la carga del personal activo.
@@ -132,21 +131,21 @@ La fuerza laboral de ElectroCasa experimenta altas, transferencias entre sucursa
 
 ---
 
-## 3. Retos Técnicos Diferenciadores (+1.0 Punto Extra)
+## 3. Implementaciones Técnicas Avanzadas
 
-### Reto 1: Tabla de Cuarentena Multi-Fuente Trazable
+### 3.1. Arquitectura de Cuarentena Multi-Fuente Trazable
 En lugar de simplemente descartar registros con `@dlt.expect_or_drop`, se implementó una **tabla unificada de cuarentena** (`silver.cuarentena`) que captura registros rechazados de múltiples orígenes mediante flujos independientes de inserción:
 * **Mecanismo:** Decorador `@dlt.append_flow(target="silver.cuarentena")` para Ventas, Devoluciones y Reseñas.
 * **Esquema de Auditoría:** `fuente STRING`, `motivo_rechazo STRING`, `fecha_rechazo TIMESTAMP`, `payload_raw STRING` (con el registro completo serializado en JSON para análisis forense).
 * **Resultado:** **695 registros capturados en cuarentena** a lo largo de los 3 lotes, garantizando que el pipeline nunca falle por datos sucios pero el negocio nunca pierda visibilidad del descarte.
 
-### Reto 2: Soporte Nativo de Tipo de Dato `VARIANT` en Reseñas
+### 3.2. Soporte Nativo de Tipo de Dato `VARIANT` en Reseñas
 Las reseñas contienen un campo semiestructurado `metadata` cuyo esquema varía dinámicamente según el canal de origen (app móvil, sitio web o kiosko de tienda física).
 * **Ingesta Bronze:** Se ingiere como texto JSON crudo.
 * **Transformación Silver:** Se parsea a formato binario estructurado nativo mediante `F.parse_json(F.col("metadata")).alias("metadata")` con tipo `VARIANT`.
 * **Explotación Gold:** Se explota analíticamente en `gold.q5_resenas_origen_variant` navegando con sintaxis de subcampos sin necesidad de definir esquemas rígidos: `metadata:origen::string`, logrando hasta 8x mayor rendimiento de lectura frente a strings JSON convencionales.
 
-### Reto 3: Auditoría y Medición de Costos por Recurso con `system.billing.usage`
+### 3.3. Observabilidad FinOps y Medición de Costos con `system.billing.usage`
 Para cuantificar el costo real y validar empíricamente la eficiencia de la arquitectura Serverless:
 * **Consulta de Agregación FinOps:** Agrupación analítica por producto (`billing_origin_product`) y SKU de servicio (`sku_name`).
 * **Métricas Reales Obtenidas:** El procesamiento total del workspace acumuló **2.66 DBUs** en SQL Warehouse Serverless, **2.14 DBUs** en el pipeline DLT Medallion, **1.79 DBUs** en Lakeflow Connect y **0.54 DBUs** en tareas automatizadas de Jobs, validando el bajo costo efectivo de la plataforma. *(Detalle y evidencia completa en la Sección 8.1.C).*
@@ -184,7 +183,8 @@ GRANT SELECT ON SCHEMA electrocasa_dev.gold TO `electrocasa_auditoria`;
 ```
 
 ![Grupos de Unity Catalog](img/01_unity_catalog_groups.png)
-*Figura 1: Grupos gobernados configurados en Unity Catalog (Settings > Identity and access > Groups).*
+
+*Figura 1: Grupos administrados en Unity Catalog (Settings > Identity and access > Groups).*
 
 ### 4.2. Demostración de `GRANT` y `REVOKE`
 Para evidenciar el control estricto de accesos y la revocación efectiva de privilegios:
@@ -238,7 +238,8 @@ GRANT SELECT ON TABLE system.access.column_lineage TO `electrocasa_auditoria`;
   ```
 
 ![Error de Catálogo System en Free Edition](img/06_auditoria_system_error.jpg)
-*Figura 2: Ejecución en notebook `00_setup.ipynb` demostrando la restricción `PERMISSION_DENIED` al intentar otorgar permisos sobre el catálogo `system` en Free Edition.*
+
+*Figura 2: Error PERMISSION_DENIED en notebook 00_setup.ipynb al intentar otorgar permisos sobre el catálogo system en Free Edition.*
 
 * **Mecanismos Alternativos de Auditoría Habilitados:**
   En entornos Databricks Free Edition, las cuentas no disponen de privilegios `MANAGE` sobre el catálogo raíz `system`. Por esta razón de arquitectura:
@@ -323,24 +324,55 @@ La tabla `dbo.TrackingEnvios` reside en una base de datos externa Azure SQL Data
   | **v2** | 2026-11-22 18:44:08 | **MERGE** | **15.139** | Carga incremental inicial completa con todos los eventos de marzo a octubre. |
   | **v3** | Siguiente ejecución | *(Sin cambios)* | **0** | Reejecución con cursor: al no haber filas con `fecha_modificacion` mayor, no se insertó ninguna fila. |
 
-  ![Ingesta de Tracking Lakeflow Connect](img/02_lakeflow_connect_tracking.jpg)
-  *Figura 3: Pipeline de Lakeflow Connect completado con éxito procesando la ingesta de tracking hacia la Streaming Table.*
+![Ingesta de Tracking Lakeflow Connect](img/02_lakeflow_connect_tracking.jpg)
+
+*Figura 3: Pipeline de Lakeflow Connect completado tras procesar la ingesta incremental hacia bronze.tracking_envios.*
 
 ---
 
 ## 6. Resultados de Ejecución y Métricas Consolidadas
 
+La plataforma Lakehouse fue desplegada, ejecutada y verificada de extremo a extremo a través de sus componentes de orquestación y transformación sobre cómputo Serverless.
+
+### 6.1. Orquestación con Lakeflow Jobs: Secuencia, Reintentos y Alertas
+
+La orquestación del flujo de datos se diseñó bajo los siguientes principios operacionales:
+* **Secuencia Determinista de Tareas:** Ejecuta de forma secuencial la ingesta inicial idempotente (`ingesta_copy_into`), el procesamiento declarativo Medallion (`pipeline_medallion`) y la certificación de calidad final (`validacion_calidad`).
+* **Estrategia de Disparo Programado (`schedule`):** Se configuró una programación mensual determinista (`0 0 6 1 * ?`, zona horaria `America/Lima`) activada el 1er día de cada mes a las 06:00 AM (`UNPAUSED`). Esto responde exactamente a la cadencia de cierre mensual de ventas y nómina de ElectroCasa, garantizando la ingesta de los lotes sin mantener triggers continuos que agoten la cuota diaria de Free Edition. Para la validación del proyecto y la ingesta secuencial de los 3 lotes históricos, las ejecuciones se dispararon bajo demanda mediante Databricks CLI (`databricks bundle run`).
+* **Política de Reintentos:** Cada tarea tiene configurado `max_retries: 1` con un intervalo de reintento de 60 segundos (`min_retry_interval_millis: 60000`) para mitigar fallos transitorios de red o aprovisionamiento.
+* **Alertas Gobernadas:** Se configuró `email_notifications` con notificación en fallo (`on_failure`) dirigida al correo del administrador (`ridgwayjose39@gmail.com`).
+* **Quality Gate de Validación (`02_validacion_calidad.py`):**
+  1. Audita los conteos de filas de las 7 tablas de Silver.
+  2. Desglosa los 695 casos aislados en `silver.cuarentena` por origen y motivo.
+  3. Falla con `AssertionError` si alguna tabla de Gold queda vacía (cero filas).
+  4. Garantiza la aplicación de Dynamic Data Masking en `silver.empleados`.
+
 ![Orquestación Lakeflow Job](img/04_lakeflow_job_dag_success.png)
-*Figura 4: Orquestador Lakeflow Job con sus 3 tareas secuenciales en verde (ingesta_copy_into -> pipeline_medallion -> validacion_calidad).*
+
+*Figura 4: Lakeflow Job completado con sus 3 tareas secuenciales en verde (ingesta_copy_into -> pipeline_medallion -> validacion_calidad) en 2m 20s sobre Serverless.*
+
+### 6.2. Grafo de Transformación Medallion (Lakeflow Spark Declarative Pipelines)
+
+El procesamiento central opera mediante un **Lakeflow Spark Declarative Pipeline (Delta Live Tables)** sobre cómputo Serverless bajo arquitectura multi-schema (`bronze.*`, `silver.*`, `gold.*`).
+
+El DAG completó exitosamente sus **22 tablas en verde**:
+* **Capa Bronze (4 tablas streaming):** Auto Loader desde volúmenes de aterrizaje (`bronze.ventas`, `bronze.empleados`, `bronze.resenas`, `bronze.devoluciones`).
+* **Fuentes Externas Conectadas (2 tablas):** Snapshots de catálogo (`bronze.catalogo` vía `COPY INTO`) y eventos de tracking (`bronze.tracking_envios` vía Lakeflow Connect).
+* **Capa Silver (8 tablas):** Tablas limpias con expectativas `@dlt.expect_*`, historial SCD Tipo 2 (`silver.empleados` vía `APPLY CHANGES INTO`) y tabla de anomalías (`silver.cuarentena` vía `@dlt.append_flow`).
+* **Capa Gold (8 Data Marts):** Modelos agregados y materializados que responden a las 6 preguntas analíticas de negocio.
 
 ![DAG Pipeline DLT Medallion](img/03_dlt_pipeline_medallion.png)
-*Figura 5: Grafo acíclico dirigido (DAG) de Lakeflow Spark Declarative Pipelines completado con sus 22 tablas en verde.*
+
+*Figura 5: Grafo acíclico dirigido (DAG) de Delta Live Tables completado con sus 22 tablas en verde bajo la arquitectura multi-schema.*
+
+### 6.3. Supervisión Centralizada de Procesos en Databricks (Jobs & Pipelines)
 
 ![Monitoreo Jobs y Pipelines](img/05_jobs_and_pipelines_overview.png)
-*Figura 6: Vista general de Jobs & Pipelines de Databricks con ejecuciones recientes exitosas.*
 
-### 6.1. Evolución de Conteos por Lote (Lote 1 $\rightarrow$ Lote 2 $\rightarrow$ Lote 3)
-A continuación se documenta el comportamiento incremental tras cada corrida del Lakeflow Job, contrastando los **registros brutos ingresados en Bronze** contra los **registros limpios conformados en Silver y aislados en Cuarentena**:
+*Figura 6: Vista general de Jobs & Pipelines en Databricks con ejecuciones recientes exitosas del pipeline Medallion, la ingesta de tracking y los jobs orquestadores.*
+
+### 6.4. Evolución de Conteos por Lote (Lote 1 $\rightarrow$ Lote 2 $\rightarrow$ Lote 3)
+Evolución de registros brutos ingresados en Bronze frente a registros limpios en Silver y descartes en Cuarentena tras cada corrida:
 
 #### A. Conteos de Capa Bronze (Archivos Raw Ingresados por Lote)
 | Tabla Bronze | Lote 1 (Acumulado) | Lote 2 (Acumulado) | Lote 3 (Final Total) | Formato y Detalle de Entrega |
@@ -371,7 +403,7 @@ A continuación se documenta el comportamiento incremental tras cada corrida del
 > * **Devoluciones:** 4.217 raw en Bronze = 4.085 en Silver + 72 en Cuarentena + 60 reingestas idénticas absorbidas.  
 > * **Reseñas:** 9.280 raw en Bronze = 9.097 en Silver + 103 en Cuarentena + 80 reingestas idénticas absorbidas.
 
-### 6.2. Auditoría Final de Cuarentena (695 Casos Desglosados)
+### 6.5. Auditoría Final de Cuarentena (695 Casos Desglosados)
 | Fuente | Motivo de Rechazo | Cantidad | Acción de Protección Tomada |
 |---|---|:---:|---|
 | `ventas` | `monto_invalido_o_negativo` | **353** | Aislado; impedía distorsión en cálculo de ingresos. |
@@ -383,17 +415,6 @@ A continuación se documenta el comportamiento incremental tras cada corrida del
 | `devoluciones` | `venta_id_nula` | **34** | Aislado; devolución huérfana sin venta origen. |
 | `resenas` | `calificacion_menor_a_1` | **28** | Aislado; calificación cero o negativa. |
 | **Total** | | **695** | **100% trazables en payload raw JSON** |
-
-### 6.3. Orquestación con Lakeflow Jobs: Disparo, Reintentos y Alertas
-La orquestación del flujo de datos se diseñó bajo los siguientes principios operacionales:
-* **Estrategia de Disparo:** Se configuró para ejecución **por lotes programada / bajo demanda** (`manual / trigger programado`). En Databricks Free Edition, programar triggers automáticos continuos o de alta frecuencia agota la cuota diaria de cómputo serverless; por ello, la ejecución secuencial se dispara controladamente tras el aterrizaje de cada lote mensual.
-* **Política de Reintentos:** Cada tarea del job (`ingesta_copy_into`, `pipeline_medallion`, `validacion_calidad`) tiene configurado `max_retries: 1` con un intervalo de reintento de 60 segundos (`min_retry_interval_millis: 60000`) para mitigar fallos transitorios de red o aprovisionamiento serverless.
-* **Alertas Gobernadas:** Se configuró `email_notifications` con notificación en fallo (`on_failure`) dirigida al correo del administrador (`ridgwayjose39@gmail.com`).
-* **Quality Gate de Validación (`02_validacion_calidad.py`):**
-  1. Audita los conteos de filas de las 7 tablas de Silver.
-  2. Desglosa los 695 casos aislados en `silver.cuarentena` por origen y motivo.
-  3. Falla con `AssertionError` si alguna tabla de Gold queda vacía (cero filas).
-  4. Garantiza la aplicación de Dynamic Data Masking en `silver.empleados`.
 
 ---
 
@@ -457,7 +478,8 @@ LIMIT 10;
 * **Resultado Obtenido:** La consulta confirmó la finalización exitosa de la actualización (`Update ad405d is COMPLETED`), el reporte de métricas de flujo para `silver.empleados`, `silver.tracking_envios`, `silver.catalogo`, `silver.sucursales`, `gold.q3_dotacion_activa_mensual`, y el ciclo completo de planificación y persistencia multi-schema.
 
 ![Consulta al Event Log de DLT](img/09_dlt_event_log_query.png)
-*Figura 7: Consulta ejecutada en SQL Editor a la función nativa `event_log()` del pipeline Medallion mostrando los eventos de ejecución y métricas de flujo.*
+
+*Figura 7: Consulta ejecutada en SQL Editor a la función nativa `event_log()` del pipeline Medallion mostrando eventos y métricas de flujo.*
 
 #### B. Diagnóstico de Tablas de Sistema: `system.lakeflow.job_runs`
 Al intentar consultar el historial centralizado de ejecuciones mediante la tabla de sistema `system.lakeflow.job_runs`, el motor retornó la excepción de catálogo:
@@ -472,13 +494,14 @@ Search path: [`system`.`session`, `system`.`builtin`, `system`.`ai`, `workspace`
 ```
 
 ![Error de Tabla System Lakeflow](img/07_system_lakeflow_not_found.png)
+
 *Figura 8: Diagnóstico en SQL Editor evidenciando la no disponibilidad del esquema `system.lakeflow` en Databricks Free Edition (`TABLE_OR_VIEW_NOT_FOUND`).*
 
 * **Justificación de la Alternativa Utilizada:**  
   Dado que el esquema `system.lakeflow` no está provisionado en la edición Free Edition del workspace, el historial y trazabilidad de ejecuciones del job se supervisa directamente a través del panel de **Runs de Lakeflow Jobs** (Figura 4 y Figura 6), complementado con la función nativa `event_log()` documentada en el apartado anterior.
 
-#### C. Reto Técnico Opcional: Auditoría de Costos Medidos en `system.billing.usage` (+0.5 pt)
-Como reto diferenciador de medición económica del proyecto y a diferencia de los esquemas de auditoría restringidos en Free Edition, la tabla de sistema `system.billing.usage` **se encuentra disponible y activa** en el workspace. Para cuantificar el consumo generado por recurso y tipo de producto, se ejecutó la siguiente consulta de agregación:
+#### C. Auditoría y Métricas Reales de Consumo en `system.billing.usage`
+A diferencia de los esquemas de auditoría restringidos en Free Edition, la tabla de sistema `system.billing.usage` **se encuentra disponible y activa** en el workspace. Para cuantificar el consumo generado por recurso y tipo de producto, se ejecutó la siguiente consulta de agregación:
 
 ```sql
 SELECT 
@@ -493,6 +516,7 @@ ORDER BY consumo_total_dbus DESC;
 ```
 
 ![Registros de Consumo en system.billing.usage](img/08_system_billing_usage.png)
+
 *Figura 9: Registros reales de facturación y consumo de DBUs en `system.billing.usage` para las cargas de trabajo del workspace en AWS US East (Ohio).*
 
 * **Desglose de Costos Medidos por Recurso (Valores Reales Ejecutados):**
@@ -509,7 +533,7 @@ ORDER BY consumo_total_dbus DESC;
   | **NETWORKING** | `PUBLIC_CONNECTIVITY_DATA_PROCESSED_US_EAST_OHIO` | GB | **`0.002166`** | Transferencia de datos procesados hacia endpoints públicos. |
   | **NETWORKING** | `INTERNET_EGRESS_FROM_US_EAST_OHIO` | GB | **`0.000196`** | Tráfico de salida hacia internet. |
 
-* **Conclusión de Eficiencia:** La medición empírica confirma que todo el procesamiento analítico y de ingesta del proyecto integrador (3 lotes de datos, 21 tablas Medallion y orquestación) se ejecutó con un consumo acumulado menor a **7.5 DBUs**, demostrando la altísima eficiencia de costos del cómputo Serverless.
+* **Conclusión de Eficiencia:** La medición empírica confirma que todo el procesamiento analítico y de ingesta del proyecto integrador (3 lotes de datos, 22 tablas Medallion y orquestación) se ejecutó con un consumo acumulado menor a **7.5 DBUs**, demostrando la altísima eficiencia de costos del cómputo Serverless.
 
 ### 8.2. Justificación de Cómputo por Recurso (Serverless vs. Classic Clusters)
 
@@ -578,6 +602,8 @@ electrocasa-lakehouse/
 
 ### 9.2. Guía de Ejecución Rápida (CLI)
 
+Los comandos oficiales de Databricks CLI para el ciclo de vida del bundle en el entorno de desarrollo (`dev`) son:
+
 ```bash
 # 1. Autenticarse contra el workspace de Databricks
 databricks auth login --host https://dbc-91723c77-f009.cloud.databricks.com
@@ -593,7 +619,13 @@ databricks bundle run -t dev electrocasa_etl_job
 ```
 
 ![Validación y Despliegue de Bundle con CLI](img/10_bundle_deploy_cli.png)
+
 *Figura 10: Validación estricta (`bundle validate --strict -t dev`) y despliegue exitoso (`bundle deploy -t dev`) hacia el workspace mediante Databricks CLI.*
 
+### 9.3. Integración en IDE (Bundle Resource Explorer en VS Code)
+
+Sincronización de recursos declarativos en la extensión oficial de Databricks para Visual Studio Code vinculados al catálogo `electrocasa_dev`:
+
 ![Recursos del Bundle en VS Code](img/11_bundle_resource_explorer.png)
+
 *Figura 11: Vista del Bundle Resource Explorer en Visual Studio Code evidenciando la orquestación del Job (`electrocasa_orchestration_job`) con sus 3 tareas y el Pipeline Medallion vinculados al catálogo `electrocasa_dev`.*
