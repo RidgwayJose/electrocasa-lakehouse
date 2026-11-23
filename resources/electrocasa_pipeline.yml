@@ -3,7 +3,7 @@ resources:
     electrocasa_pipeline:
       name: "[${bundle.target}] electrocasa_medallion_pipeline"
       catalog: ${var.catalog_name}
-      schema: default
+      schema: bronze
       serverless: true
       root_path: ../src
       libraries:
@@ -11,3 +11,6 @@ resources:
             include: ../src/electrocasa/transformations/**
       configuration:
         catalog_name: ${var.catalog_name}
+        bronze_schema: bronze
+        silver_schema: silver
+        gold_schema: gold

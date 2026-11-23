@@ -92,7 +92,7 @@ SCHEMA_RESENAS_JSON = StructType([
 # -------------------------------------------------------------------------
 
 @dlt.table(
-    name="bronze_ventas",
+    name="bronze.ventas",
     comment="Ingesta raw de ventas por lotes mediante Auto Loader (CSV)",
     table_properties={"quality": "bronze"}
 )
@@ -117,7 +117,7 @@ def bronze_ventas():
 
 
 @dlt.table(
-    name="bronze_empleados",
+    name="bronze.empleados",
     comment="Ingesta raw de eventos de RR.HH. por lotes mediante Auto Loader (CSV)",
     table_properties={"quality": "bronze"}
 )
@@ -142,7 +142,7 @@ def bronze_empleados():
 
 
 @dlt.table(
-    name="bronze_resenas",
+    name="bronze.resenas",
     comment="Ingesta raw de reseñas anidadas mediante Auto Loader (JSON Lines)",
     table_properties={"quality": "bronze"}
 )
@@ -165,7 +165,7 @@ def bronze_resenas():
 
 
 @dlt.table(
-    name="bronze_devoluciones",
+    name="bronze.devoluciones",
     comment="Ingesta raw de devoluciones por lotes mediante Auto Loader (CSV)",
     table_properties={"quality": "bronze"}
 )

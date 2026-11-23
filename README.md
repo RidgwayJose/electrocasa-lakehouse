@@ -32,35 +32,35 @@ flowchart TD
     end
 
     subgraph Bronze ["Capa Bronze (Fiel, Raw y Auditable)"]
-        B_V[bronze_ventas]
+        B_V[bronze.ventas]
         B_C[bronze.catalogo - COPY INTO]
-        B_E[bronze_empleados]
-        B_R[bronze_resenas]
-        B_D[bronze_devoluciones]
+        B_E[bronze.empleados]
+        B_R[bronze.resenas]
+        B_D[bronze.devoluciones]
         B_S[bronze.sucursales - COPY INTO]
-        B_T[bronze_tracking_envios - Lakeflow Connect]
+        B_T[bronze.tracking_envios - Lakeflow Connect]
     end
 
-    subgraph Silver ["Capa Silver (Limpia, Deduplicada y Auditada)"]
-        S_V[silver_ventas]
-        S_C[silver_catalogo]
-        S_E["silver_empleados (SCD Tipo 2)"]
-        S_R["silver_resenas (VARIANT nativo)"]
-        S_D[silver_devoluciones]
-        S_S[silver_sucursales]
-        S_T[silver_tracking_envios]
-        CUAR["silver_cuarentena (@dlt.append_flow)"]
+    subgraph Silver ["Capa Silver (Esquema electrocasa_dev.silver)"]
+        S_V[silver.ventas]
+        S_C[silver.catalogo]
+        S_E["silver.empleados (SCD Tipo 2)"]
+        S_R["silver.resenas (VARIANT nativo)"]
+        S_D[silver.devoluciones]
+        S_S[silver.sucursales]
+        S_T[silver.tracking_envios]
+        CUAR["silver.cuarentena (@dlt.append_flow)"]
     end
 
-    subgraph Gold ["Capa Gold (Marts de Negocio - 6 Preguntas)"]
-        Q1["gold_q1_ventas_netas_sucursal_mes"]
-        Q2V["gold_q2_top_productos_ventas"]
-        Q2D["gold_q2_top_productos_devoluciones"]
-        Q3["gold_q3_dotacion_activa_mensual"]
-        Q4["gold_q4_ventas_vendedor_historico"]
-        Q5["gold_q5_resenas_negativas_categoria"]
-        Q5V["gold_q5_resenas_origen_variant"]
-        Q6["gold_q6_despachos_courier"]
+    subgraph Gold ["Capa Gold (Esquema electrocasa_dev.gold)"]
+        Q1["gold.q1_ventas_netas_sucursal_mes"]
+        Q2V["gold.q2_top_productos_ventas"]
+        Q2D["gold.q2_top_productos_devoluciones"]
+        Q3["gold.q3_dotacion_activa_mensual"]
+        Q4["gold.q4_ventas_vendedor_historico"]
+        Q5["gold.q5_resenas_negativas_categoria"]
+        Q5V["gold.q5_resenas_origen_variant"]
+        Q6["gold.q6_despachos_courier"]
     end
 
     V --> VOL
@@ -110,8 +110,8 @@ flowchart TD
 | **`COPY INTO`** | Catálogo de Productos y Sucursales | Utilizado fuera del pipeline DLT en un notebook batch (`01_ingesta_copy_into.py`). Es ideal para snapshots periódicos completos (Catálogo en marzo y agosto) y tablas dimensionales estáticas (Sucursales). Es 100% idempotente: reejecutarlo sobre el mismo directorio no duplica filas y no requiere infraestructura streaming activa. |
 
 ### 2.2. Streaming Tables vs. Materialized Views
-* **Streaming Tables:** Se emplearon en toda la capa Bronze transaccional y en tablas Silver append-only (`silver_ventas`, `silver_devoluciones`, `silver_resenas`, `silver_cuarentena`). Procesan exactamente una vez cada nuevo registro que llega al volumen de aterrizaje con latencia mínima.
-* **Materialized Views:** Se emplearon en las dimensiones (`silver_catalogo`, `silver_sucursales`) y en toda la capa **Gold** (`gold_q1` a `gold_q6`). Permiten recalcular agregaciones complejas multi-tabla con optimizaciones del optimizador de consultas de Databricks, garantizando consistencia analítica total.
+* **Streaming Tables:** Se emplearon en toda la capa Bronze transaccional (`bronze.ventas`, `bronze.empleados`, `bronze.resenas`, `bronze.devoluciones`) y en tablas Silver append-only (`silver.ventas`, `silver.devoluciones`, `silver.resenas`, `silver.cuarentena`). Procesan exactamente una vez cada nuevo registro que llega al volumen de aterrizaje con latencia mínima.
+* **Materialized Views:** Se emplearon en las dimensiones (`silver.catalogo`, `silver.sucursales`) y en toda la capa **Gold** (`gold.q1` a `gold.q6`). Permiten recalcular agregaciones complejas multi-tabla con optimizaciones del optimizador de consultas de Databricks, garantizando consistencia analítica total.
 
 ### 2.3. Historización de Empleados con SCD Tipo 2 (`AUTO CDC`)
 La fuerza laboral de ElectroCasa experimenta altas, transferencias entre sucursales, aumentos salariales y ceses. Para mantener la trazabilidad exacta de qué empleado atendió cada venta histórica:
@@ -251,8 +251,8 @@ Se crearon funciones de enmascaramiento gobernadas para proteger información de
 * **Salario:** Función `mask_salario` que devuelve `0.00` a analistas y el valor real a personal autorizado.
 * **Aplicación:** Integrada en la tarea de cierre del Job mediante comandos de alteración de columna gobernados:
   ```sql
-  ALTER TABLE electrocasa_dev.default.silver_empleados ALTER COLUMN dni SET MASK mask_dni;
-  ALTER TABLE electrocasa_dev.default.silver_empleados ALTER COLUMN salario SET MASK mask_salario;
+  ALTER TABLE electrocasa_dev.silver.empleados ALTER COLUMN dni SET MASK electrocasa_dev.silver.mask_dni;
+  ALTER TABLE electrocasa_dev.silver.empleados ALTER COLUMN salario SET MASK electrocasa_dev.silver.mask_salario;
   ```
 
 ---
@@ -293,14 +293,14 @@ A continuación se documenta el comportamiento incremental tras cada corrida del
 
 | Tabla | Lote 1 (Acumulado) | Lote 2 (Acumulado) | Lote 3 (Final Total) | Observaciones de Integridad |
 |---|:---:|:---:|:---:|---|
-| `silver_ventas` | 6.588 | 13.064 | **17.488** | Deduplicadas por `venta_id`; reingestas no duplican filas. |
-| `silver_devoluciones` | 1.364 | 3.018 | **4.085** | Cruzadas y validadas contra ventas. |
-| `silver_empleados` | 2.247 | 3.489 | **4.372** | **SCD Tipo 2**: Eventos tardíos insertados en su ventana temporal. |
-| `silver_catalogo` | 2.305 | 2.349 | **2.349** | Snapshot marzo (2.305) y agosto (incorporó altas y bajas). |
-| `silver_resenas` | 5.219 | 5.219 | **9.097** | Lote 1 en julio (5.219) y Lote 2 en octubre (3.878 nuevos). |
-| `silver_tracking_envios` | 15.139 | 15.139 | **15.139** | Ingesta incremental de Azure SQL completa desde corrida 1. |
-| `silver_sucursales` | 40 | 40 | **40** | Maestro dimensional fijo de 40 tiendas. |
-| **`silver_cuarentena`** | **238** | **501** | **695** | Registros defectuosos aislados y trazables. |
+| `silver.ventas` | 6.588 | 13.064 | **17.488** | Deduplicadas por `venta_id`; reingestas no duplican filas. |
+| `silver.devoluciones` | 1.364 | 3.018 | **4.085** | Cruzadas y validadas contra ventas. |
+| `silver.empleados` | 2.247 | 3.489 | **4.372** | **SCD Tipo 2**: Eventos tardíos insertados en su ventana temporal. |
+| `silver.catalogo` | 2.305 | 2.349 | **2.349** | Snapshot marzo (2.305) y agosto (incorporó altas y bajas). |
+| `silver.resenas` | 5.219 | 5.219 | **9.097** | Lote 1 en julio (5.219) y Lote 2 en octubre (3.878 nuevos). |
+| `silver.tracking_envios` | 15.139 | 15.139 | **15.139** | Ingesta incremental de Azure SQL completa desde corrida 1. |
+| `silver.sucursales` | 40 | 40 | **40** | Maestro dimensional fijo de 40 tiendas. |
+| **`silver.cuarentena`** | **238** | **501** | **695** | Registros defectuosos aislados y trazables. |
 
 ### 6.2. Auditoría Final de Cuarentena (695 Casos Desglosados)
 | Fuente | Motivo de Rechazo | Cantidad | Acción de Protección Tomada |

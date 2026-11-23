@@ -22,15 +22,15 @@ print(f"Iniciando validaciones de calidad sobre catálogo: {catalogo}")
 # MAGIC ## 1. Conteos en Capa Silver
 
 # COMMAND ----------
-# Lista de tablas Silver del pipeline (o schema default/silver)
+# Lista de tablas Silver del pipeline (esquema silver)
 tablas_silver = [
-    "silver_ventas",
-    "silver_catalogo",
-    "silver_sucursales",
-    "silver_devoluciones",
-    "silver_resenas",
-    "silver_tracking_envios",
-    "silver_empleados"
+    "ventas",
+    "catalogo",
+    "sucursales",
+    "devoluciones",
+    "resenas",
+    "tracking_envios",
+    "empleados"
 ]
 
 print("=" * 60)
@@ -39,24 +39,24 @@ print("=" * 60)
 
 conteos_silver = {}
 for tbl in tablas_silver:
-    # Intentar leer desde el catálogo activo
+    # Intentar leer desde schema silver, fallback a legacy default.silver_{tbl}
     try:
-        df = spark.table(f"{catalogo}.default.{tbl}")
+        df = spark.table(f"{catalogo}.silver.{tbl}")
     except Exception:
         try:
-            df = spark.table(f"{catalogo}.silver.{tbl}")
+            df = spark.table(f"{catalogo}.default.silver_{tbl}")
         except Exception:
             df = spark.table(tbl)
             
     count = df.count()
     conteos_silver[tbl] = count
-    print(f"✓ Tabla: {tbl:30} | Filas: {count:,}")
+    print(f"✓ Tabla: silver.{tbl:25} | Filas: {count:,}")
 
-# Asegurar Dynamic Data Masking en Unity Catalog sobre silver_empleados (dni y salario)
+# Asegurar Dynamic Data Masking en Unity Catalog sobre silver.empleados (dni y salario)
 try:
-    spark.sql(f"ALTER TABLE {catalogo}.default.silver_empleados ALTER COLUMN dni SET MASK {catalogo}.default.mask_dni")
-    spark.sql(f"ALTER TABLE {catalogo}.default.silver_empleados ALTER COLUMN salario SET MASK {catalogo}.default.mask_salario")
-    print("✓ Dynamic Data Masking verificado exitosamente en silver_empleados (dni y salario).")
+    spark.sql(f"ALTER TABLE {catalogo}.silver.empleados ALTER COLUMN dni SET MASK {catalogo}.silver.mask_dni")
+    spark.sql(f"ALTER TABLE {catalogo}.silver.empleados ALTER COLUMN salario SET MASK {catalogo}.silver.mask_salario")
+    print("✓ Dynamic Data Masking verificado exitosamente en silver.empleados (dni y salario).")
 except Exception as e:
     print(f"Info DDM: {e}")
 
@@ -70,12 +70,12 @@ print("AUDITORÍA DE CUARENTENA Y REGISTROS RECHAZADOS")
 print("=" * 60)
 
 try:
-    df_cuarentena = spark.table(f"{catalogo}.default.silver_cuarentena")
+    df_cuarentena = spark.table(f"{catalogo}.silver.cuarentena")
 except Exception:
     try:
-        df_cuarentena = spark.table(f"{catalogo}.silver.silver_cuarentena")
+        df_cuarentena = spark.table(f"{catalogo}.default.silver_cuarentena")
     except Exception:
-        df_cuarentena = spark.table("silver_cuarentena")
+        df_cuarentena = spark.table("silver.cuarentena")
 
 total_rechazos = df_cuarentena.count()
 print(f"Total registros en cuarentena: {total_rechazos:,}")
@@ -97,14 +97,14 @@ else:
 
 # COMMAND ----------
 tablas_gold = [
-    "gold_q1_ventas_netas_sucursal_mes",
-    "gold_q2_top_productos_ventas",
-    "gold_q2_top_productos_devoluciones",
-    "gold_q3_dotacion_activa_mensual",
-    "gold_q4_ventas_vendedor_historico",
-    "gold_q5_resenas_negativas_categoria",
-    "gold_q5_resenas_origen_variant",
-    "gold_q6_despachos_courier"
+    "q1_ventas_netas_sucursal_mes",
+    "q2_top_productos_ventas",
+    "q2_top_productos_devoluciones",
+    "q3_dotacion_activa_mensual",
+    "q4_ventas_vendedor_historico",
+    "q5_resenas_negativas_categoria",
+    "q5_resenas_origen_variant",
+    "q6_despachos_courier"
 ]
 
 print("=" * 60)
@@ -114,15 +114,18 @@ print("=" * 60)
 tablas_vacias = []
 for tbl in tablas_gold:
     try:
-        df = spark.table(f"{catalogo}.default.{tbl}")
+        df = spark.table(f"{catalogo}.gold.{tbl}")
     except Exception:
         try:
-            df = spark.table(f"{catalogo}.gold.{tbl}")
+            df = spark.table(f"{catalogo}.default.gold_{tbl}")
         except Exception:
             df = spark.table(tbl)
             
     count = df.count()
-    print(f"✓ Tabla Gold: {tbl:38} | Filas: {count:,}")
+    print(f"✓ Tabla Gold: gold.{tbl:32} | Filas: {count:,}")
+    
+    if count == 0:
+        tablas_vacias.append(tbl)
     
     if count == 0:
         tablas_vacias.append(tbl)

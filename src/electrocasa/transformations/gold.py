@@ -20,13 +20,13 @@ from pyspark.sql import functions as F
 # -------------------------------------------------------------------------
 
 @dlt.table(
-    name="gold_q1_ventas_netas_sucursal_mes",
+    name="gold.q1_ventas_netas_sucursal_mes",
     comment="Q1: Ventas brutas, devoluciones, ventas netas y ticket promedio por sucursal y mes (marzo a octubre 2026)",
     table_properties={"quality": "gold"}
 )
 def gold_q1_ventas_netas_sucursal_mes():
     ventas = (
-        spark.read.table("silver_ventas")
+        spark.read.table("silver.ventas")
         .filter((F.col("fecha_venta") >= "2026-03-01") & (F.col("fecha_venta") <= "2026-10-31"))
         .withColumn("anio_mes", F.date_format(F.col("fecha_venta"), "yyyy-MM"))
         .groupBy("sucursal_id", "anio_mes")
@@ -37,7 +37,7 @@ def gold_q1_ventas_netas_sucursal_mes():
     )
     
     devoluciones = (
-        spark.read.table("silver_devoluciones")
+        spark.read.table("silver.devoluciones")
         .filter((F.col("fecha_devolucion") >= "2026-03-01") & (F.col("fecha_devolucion") <= "2026-10-31"))
         .withColumn("anio_mes", F.date_format(F.col("fecha_devolucion"), "yyyy-MM"))
         .groupBy("sucursal_id", "anio_mes")
@@ -66,40 +66,40 @@ def gold_q1_ventas_netas_sucursal_mes():
 # -------------------------------------------------------------------------
 
 @dlt.table(
-    name="gold_q2_top_productos_ventas",
+    name="gold.q2_top_productos_ventas",
     comment="Q2: Top productos mas vendidos por unidades totales en el periodo",
     table_properties={"quality": "gold"}
 )
 def gold_q2_top_productos_ventas():
     return (
-        spark.read.table("silver_ventas")
+        spark.read.table("silver.ventas")
         .filter((F.col("fecha_venta") >= "2026-03-01") & (F.col("fecha_venta") <= "2026-10-31"))
         .groupBy("producto_id")
         .agg(
             F.sum("cantidad").alias("unidades_vendidas"),
             F.countDistinct("venta_id").alias("cantidad_transacciones")
         )
-        .join(spark.read.table("silver_catalogo").select("producto_id", "nombre_producto", "categoria"), "producto_id", "left")
+        .join(spark.read.table("silver.catalogo").select("producto_id", "nombre_producto", "categoria"), "producto_id", "left")
         .orderBy(F.desc("unidades_vendidas"))
         .limit(10)
     )
 
 
 @dlt.table(
-    name="gold_q2_top_productos_devoluciones",
+    name="gold.q2_top_productos_devoluciones",
     comment="Q2: Top productos con mayor tasa de devolucion (devoluciones / ventas)",
     table_properties={"quality": "gold"}
 )
 def gold_q2_top_productos_devoluciones():
     ventas_prod = (
-        spark.read.table("silver_ventas")
+        spark.read.table("silver.ventas")
         .filter((F.col("fecha_venta") >= "2026-03-01") & (F.col("fecha_venta") <= "2026-10-31"))
         .groupBy("producto_id")
         .agg(F.countDistinct("venta_id").alias("total_ventas"))
     )
     
     devs_prod = (
-        spark.read.table("silver_devoluciones")
+        spark.read.table("silver.devoluciones")
         .filter((F.col("fecha_devolucion") >= "2026-03-01") & (F.col("fecha_devolucion") <= "2026-10-31"))
         .groupBy("producto_id")
         .agg(F.countDistinct("devolucion_id").alias("total_devoluciones"))
@@ -107,7 +107,7 @@ def gold_q2_top_productos_devoluciones():
     
     return (
         ventas_prod.join(devs_prod, "producto_id", "inner")
-        .join(spark.read.table("silver_catalogo").select("producto_id", "nombre_producto", "categoria"), "producto_id", "left")
+        .join(spark.read.table("silver.catalogo").select("producto_id", "nombre_producto", "categoria"), "producto_id", "left")
         .withColumn(
             "tasa_devolucion",
             F.round(F.col("total_devoluciones") / F.col("total_ventas"), 4)
@@ -122,7 +122,7 @@ def gold_q2_top_productos_devoluciones():
 # -------------------------------------------------------------------------
 
 @dlt.table(
-    name="gold_q3_dotacion_activa_mensual",
+    name="gold.q3_dotacion_activa_mensual",
     comment="Q3: Cantidad de colaboradores activos al ultimo dia de cada mes segun SCD Tipo 2",
     table_properties={"quality": "gold"}
 )
@@ -140,7 +140,7 @@ def gold_q3_dotacion_activa_mensual():
     ], ["anio_mes", "fecha_corte"]).withColumn("fecha_corte", F.to_date("fecha_corte"))
     
     # Silver empleados SCD2 con __START_AT y __END_AT generados por Auto CDC
-    empleados_scd2 = spark.read.table("silver_empleados")
+    empleados_scd2 = spark.read.table("silver.empleados")
     
     # Point-in-time join para determinar vigencia al cierre del mes
     # Un empleado está activo si fecha_corte >= __START_AT y (fecha_corte < __END_AT o __END_AT es null)
@@ -165,24 +165,23 @@ def gold_q3_dotacion_activa_mensual():
 # -------------------------------------------------------------------------
 
 @dlt.table(
-    name="gold_q4_ventas_vendedor_historico",
+    name="gold.q4_ventas_vendedor_historico",
     comment="Q4: Ventas en tienda fisica asignadas a la sucursal donde laboraba el vendedor en la fecha de la transaccion",
     table_properties={"quality": "gold"}
 )
 def gold_q4_ventas_vendedor_historico():
     ventas_tienda = (
-        spark.read.table("silver_ventas")
+        spark.read.table("silver.ventas")
         .filter(
             (F.col("canal") == "tienda_fisica") &
             (F.col("vendedor_id").isNotNull()) &
             (F.col("fecha_venta") >= "2026-03-01") &
-            (F.col("fecha_venta") <= "2026-10-31")
-        )
+            (F.col("fecha_venta") <= "2026-10-31"))
         .withColumn("anio_mes", F.date_format(F.col("fecha_venta"), "yyyy-MM"))
     )
     
     empleados_scd2 = (
-        spark.read.table("silver_empleados")
+        spark.read.table("silver.empleados")
         .select(
             F.col("id_empleado"),
             F.col("sucursal_id").alias("sucursal_historica"),
@@ -221,18 +220,18 @@ def gold_q4_ventas_vendedor_historico():
 # -------------------------------------------------------------------------
 
 @dlt.table(
-    name="gold_q5_resenas_negativas_categoria",
+    name="gold.q5_resenas_negativas_categoria",
     comment="Q5: Porcentaje de resenas negativas (1 o 2 estrellas) por categoria oficial del catalogo y mes",
     table_properties={"quality": "gold"}
 )
 def gold_q5_resenas_negativas_categoria():
     resenas = (
-        spark.read.table("silver_resenas")
+        spark.read.table("silver.resenas")
         .filter((F.col("fecha_resena") >= "2026-03-01") & (F.col("fecha_resena") <= "2026-10-31"))
         .withColumn("anio_mes", F.date_format(F.col("fecha_resena"), "yyyy-MM"))
     )
     
-    catalogo = spark.read.table("silver_catalogo").select("producto_id", "categoria")
+    catalogo = spark.read.table("silver.catalogo").select("producto_id", "categoria")
     
     # Inner join con catálogo para descartar reseñas de productos no existentes
     resenas_con_cat = resenas.join(catalogo, "producto_id", "inner")
@@ -252,13 +251,13 @@ def gold_q5_resenas_negativas_categoria():
 
 
 @dlt.table(
-    name="gold_q5_resenas_origen_variant",
+    name="gold.q5_resenas_origen_variant",
     comment="Reto Tecnico (+0.5 pts): Analisis de resenas negativas por origen y version de app usando tipo VARIANT",
     table_properties={"quality": "gold"}
 )
 def gold_q5_resenas_origen_variant():
     resenas = (
-        spark.read.table("silver_resenas")
+        spark.read.table("silver.resenas")
         .filter((F.col("fecha_resena") >= "2026-03-01") & (F.col("fecha_resena") <= "2026-10-31"))
         .withColumn("anio_mes", F.date_format(F.col("fecha_resena"), "yyyy-MM"))
         # Extraer atributos semi-estructurados navegando con ':' sobre la columna VARIANT con sintaxis SQL nativa
@@ -287,12 +286,12 @@ def gold_q5_resenas_origen_variant():
 # -------------------------------------------------------------------------
 
 @dlt.table(
-    name="gold_q6_despachos_courier",
+    name="gold.q6_despachos_courier",
     comment="Q6: Horas promedio de entrega y tasa de devolucion por courier sobre envios finalizados",
     table_properties={"quality": "gold"}
 )
 def gold_q6_despachos_courier():
-    tracking = spark.read.table("silver_tracking_envios")
+    tracking = spark.read.table("silver.tracking_envios")
     
     # 1. Tiempos entre 'pendiente' y 'entregado'
     primer_pendiente = (

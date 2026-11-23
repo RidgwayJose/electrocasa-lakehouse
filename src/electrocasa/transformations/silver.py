@@ -32,7 +32,7 @@ from electrocasa.utils.helpers import (
 # -------------------------------------------------------------------------
 
 @dlt.table(
-    name="silver_ventas",
+    name="silver.ventas",
     comment="Ventas limpias y conformadas con expectativas de calidad y deduplicacion",
     table_properties={"quality": "silver"}
 )
@@ -42,7 +42,7 @@ from electrocasa.utils.helpers import (
 @dlt.expect_or_drop("sucursal_valida", "sucursal_id IS NOT NULL AND trim(sucursal_id) != ''")
 def silver_ventas():
     return (
-        spark.readStream.table("bronze_ventas")
+        spark.readStream.table("bronze.ventas")
         .select(
             F.trim(F.col("venta_id")).alias("venta_id"),
             F.trim(F.col("sucursal_id")).alias("sucursal_id"),
@@ -66,7 +66,7 @@ def silver_ventas():
 # -------------------------------------------------------------------------
 
 @dlt.table(
-    name="silver_catalogo",
+    name="silver.catalogo",
     comment="Maestro de productos deduplicado con normalizacion de categorias y precios",
     table_properties={"quality": "silver"}
 )
@@ -95,7 +95,7 @@ def silver_catalogo():
 # -------------------------------------------------------------------------
 
 @dlt.table(
-    name="silver_sucursales",
+    name="silver.sucursales",
     comment="Maestro de sucursales con normalizacion de casing en ciudad y region",
     table_properties={"quality": "silver"}
 )
@@ -123,7 +123,7 @@ def silver_sucursales():
 # -------------------------------------------------------------------------
 
 @dlt.table(
-    name="silver_devoluciones",
+    name="silver.devoluciones",
     comment="Devoluciones validadas y deduplicadas",
     table_properties={"quality": "silver"}
 )
@@ -132,7 +132,7 @@ def silver_sucursales():
 @dlt.expect_or_drop("monto_reembolso_valido", "monto_reembolso IS NOT NULL AND monto_reembolso >= 0")
 def silver_devoluciones():
     return (
-        spark.readStream.table("bronze_devoluciones")
+        spark.readStream.table("bronze.devoluciones")
         .select(
             F.trim(F.col("devolucion_id")).alias("devolucion_id"),
             F.trim(F.col("venta_id")).alias("venta_id"),
@@ -153,7 +153,7 @@ def silver_devoluciones():
 # -------------------------------------------------------------------------
 
 @dlt.table(
-    name="silver_resenas",
+    name="silver.resenas",
     comment="Reseñas con calificaciones en escala valida (1 a 5), tags estructurados y metadata VARIANT",
     table_properties={"quality": "silver"}
 )
@@ -161,7 +161,7 @@ def silver_devoluciones():
 @dlt.expect_or_drop("calificacion_en_escala", "calificacion >= 1 AND calificacion <= 5")
 def silver_resenas():
     return (
-        spark.readStream.table("bronze_resenas")
+        spark.readStream.table("bronze.resenas")
         .select(
             F.trim(F.col("resena_id")).alias("resena_id"),
             F.trim(F.col("producto_id")).alias("producto_id"),
@@ -185,7 +185,7 @@ def silver_resenas():
 # -------------------------------------------------------------------------
 
 @dlt.table(
-    name="silver_tracking_envios",
+    name="silver.tracking_envios",
     comment="Eventos de seguimiento courier normalizados y deduplicados",
     table_properties={"quality": "silver"}
 )
@@ -223,7 +223,7 @@ def silver_tracking_envios():
 )
 def silver_empleados_preparados():
     return (
-        spark.readStream.table("bronze_empleados")
+        spark.readStream.table("bronze.empleados")
         .filter(F.col("id_empleado").isNotNull() & F.col("fecha_evento").isNotNull())
         .select(
             F.trim(F.col("id_empleado")).alias("id_empleado"),
@@ -245,13 +245,13 @@ def silver_empleados_preparados():
 
 # Target streaming table para SCD Tipo 2
 dlt.create_streaming_table(
-    name="silver_empleados",
+    name="silver.empleados",
     comment="Historico de colaboradores con SCD Tipo 2",
     table_properties={"quality": "silver"}
 )
 
 dlt.create_auto_cdc_flow(
-    target="silver_empleados",
+    target="silver.empleados",
     source="silver_empleados_preparados",
     keys=["id_empleado"],
     sequence_by="fecha_evento",
@@ -266,7 +266,7 @@ dlt.create_auto_cdc_flow(
 # flujos @dlt.append_flow independientes para consolidar rechazos por fuente.
 
 dlt.create_streaming_table(
-    name="silver_cuarentena",
+    name="silver.cuarentena",
     comment="Registros rechazados por reglas de calidad con trazabilidad completa de origen y motivo",
     schema="""
         fuente STRING COMMENT 'Nombre de la fuente de datos que origino el rechazo',
@@ -280,10 +280,10 @@ dlt.create_streaming_table(
 )
 
 
-@dlt.append_flow(target="silver_cuarentena")
+@dlt.append_flow(target="silver.cuarentena")
 def rechazos_ventas_flow():
     return (
-        spark.readStream.table("bronze_ventas")
+        spark.readStream.table("bronze.ventas")
         .filter(
             (clean_currency_amount("monto_total").isNull() | (clean_currency_amount("monto_total") <= 0)) |
             (F.col("cantidad").cast("int").isNull() | (F.col("cantidad").cast("int") <= 0)) |
@@ -303,10 +303,10 @@ def rechazos_ventas_flow():
     )
 
 
-@dlt.append_flow(target="silver_cuarentena")
+@dlt.append_flow(target="silver.cuarentena")
 def rechazos_resenas_flow():
     return (
-        spark.readStream.table("bronze_resenas")
+        spark.readStream.table("bronze.resenas")
         .filter(
             F.col("calificacion").isNull() |
             (F.col("calificacion") < 1) |
@@ -326,10 +326,10 @@ def rechazos_resenas_flow():
     )
 
 
-@dlt.append_flow(target="silver_cuarentena")
+@dlt.append_flow(target="silver.cuarentena")
 def rechazos_devoluciones_flow():
     return (
-        spark.readStream.table("bronze_devoluciones")
+        spark.readStream.table("bronze.devoluciones")
         .filter(
             clean_currency_amount("monto_reembolso").isNull() |
             (clean_currency_amount("monto_reembolso") < 0) |
