@@ -3,12 +3,12 @@ Transformaciones Capa Gold - Lakeflow Spark Declarative Pipelines
 ElectroCasa Lakehouse Platform
 
 Modelado analitico y agregaciones de negocio para responder las 6 preguntas clave (periodo marzo-octubre 2026):
-1. gold_q1_ventas_netas_sucursal_mes: Facturacion neta (ventas - devoluciones), ticket promedio por sucursal y mes.
-2. gold_q2_top_productos: Top 10 mas vendidos y Top 10 mayor tasa de devolucion.
-3. gold_q3_dotacion_activa: Cantidad de empleados activos por sucursal al ultimo dia de cada mes (SCD2).
-4. gold_q4_ventas_vendedor_historico: Ventas de tienda fisica segun la sucursal historica del vendedor (as-of join).
-5. gold_q5_resenas_negativas: Tasa de resenas negativas (1-2 estrellas) por categoria de catalogo y mes.
-6. gold_q6_despachos_courier: Tiempo promedio de entrega en horas y tasa de devolucion por courier.
+1. gold.q1_ventas_netas_sucursal_mes: Facturacion neta (ventas - devoluciones), ticket promedio por sucursal y mes.
+2. gold.q2_top_productos: Top 10 mas vendidos y Top 10 mayor tasa de devolucion.
+3. gold.q3_dotacion_activa_mensual: Cantidad de empleados activos por sucursal al ultimo dia de cada mes (SCD2).
+4. gold.q4_ventas_vendedor_historico: Ventas de tienda fisica segun la sucursal historica del vendedor (as-of join).
+5. gold.q5_resenas_negativas: Tasa de resenas negativas (1-2 estrellas) por categoria de catalogo y mes.
+6. gold.q6_despachos_courier: Tiempo promedio de entrega en horas y tasa de devolucion por courier.
 """
 
 import dlt

@@ -122,21 +122,21 @@ La fuerza laboral de ElectroCasa experimenta altas, transferencias entre sucursa
 * Columnas históricas generadas automáticamente por Spark Declarative Pipelines: `__START_AT` y `__END_AT`.
 
 ### 2.4. Justificación de Decisiones de Diseño ("Decisiones que tomas tú")
-1. **Referencias huérfanas:** Las ventas, devoluciones o reseñas que referencian productos o ventas inexistentes se aíslan en `silver_cuarentena` (o se excluyen en los joins de Gold) para asegurar que ningún KPI de recaudación neta o calificación se distorsione con datos espurios.
+1. **Referencias huérfanas:** Las ventas, devoluciones o reseñas que referencian productos o ventas inexistentes se aíslan en `silver.cuarentena` (o se excluyen en los joins de Gold) para asegurar que ningún KPI de recaudación neta o calificación se distorsione con datos espurios.
 2. **Mismo DNI en dos empleados distintos:** Se prioriza `id_empleado` como clave primaria técnica en SCD2, reconociendo que el DNI repetido proviene de un error humano de digitación en RR.HH., evitando la colisión de historiales.
 3. **Salarios fuera de rango:** Se normalizan y parsean a `decimal(12,2)`. Las aserciones de auditoría aíslan anomalías extremas para revisión sin truncar la carga del personal activo.
-4. **Productos descontinuados (`activo: false`):** Se conservan en `silver_catalogo` marcados con su bandera booleana. Esto preserva la integridad referencial histórica (un televisor vendido en abril que se descontinúa en agosto debe seguir existiendo en el catálogo para el cálculo de ventas de abril).
+4. **Productos descontinuados (`activo: false`):** Se conservan en `silver.catalogo` marcados con su bandera booleana. Esto preserva la integridad referencial histórica (un televisor vendido en abril que se descontinúa en agosto debe seguir existiendo en el catálogo para el cálculo de ventas de abril).
 5. **Políticas de violación de expectativas:**
    * `@dlt.expect_or_fail`: Aplicada estrictamente a claves primarias no nulas (`id IS NOT NULL`). Si falta la llave, el lote se detiene.
-   * `@dlt.expect_or_drop`: Aplicada a reglas de negocio de datos sucios (montos negativos, calificaciones fuera de escala 1-5). Los registros descartados se capturan en paralelo en `silver_cuarentena`.
+   * `@dlt.expect_or_drop`: Aplicada a reglas de negocio de datos sucios (montos negativos, calificaciones fuera de escala 1-5). Los registros descartados se capturan en paralelo en `silver.cuarentena`.
 
 ---
 
 ## 3. Retos Técnicos Diferenciadores (+1.0 Punto Extra)
 
 ### Reto 1: Tabla de Cuarentena Multi-Fuente Trazable
-En lugar de simplemente descartar registros con `@dlt.expect_or_drop`, se implementó una **tabla unificada de cuarentena** (`silver_cuarentena`) que captura registros rechazados de múltiples orígenes mediante flujos independientes de inserción:
-* **Mecanismo:** Decorador `@dlt.append_flow(target="silver_cuarentena")` para Ventas, Devoluciones y Reseñas.
+En lugar de simplemente descartar registros con `@dlt.expect_or_drop`, se implementó una **tabla unificada de cuarentena** (`silver.cuarentena`) que captura registros rechazados de múltiples orígenes mediante flujos independientes de inserción:
+* **Mecanismo:** Decorador `@dlt.append_flow(target="silver.cuarentena")` para Ventas, Devoluciones y Reseñas.
 * **Esquema de Auditoría:** `fuente STRING`, `motivo_rechazo STRING`, `fecha_rechazo TIMESTAMP`, `payload_raw STRING` (con el registro completo serializado en JSON para análisis forense).
 * **Resultado:** **695 registros capturados en cuarentena** a lo largo de los 3 lotes, garantizando que el pipeline nunca falle por datos sucios pero el negocio nunca pierda visibilidad del descarte.
 
@@ -144,7 +144,7 @@ En lugar de simplemente descartar registros con `@dlt.expect_or_drop`, se implem
 Las reseñas contienen un campo semiestructurado `metadata` cuyo esquema varía dinámicamente según el canal de origen (app móvil, sitio web o kiosko de tienda física).
 * **Ingesta Bronze:** Se ingiere como texto JSON crudo.
 * **Transformación Silver:** Se parsea a formato binario estructurado nativo mediante `F.parse_json(F.col("metadata")).alias("metadata")` con tipo `VARIANT`.
-* **Explotación Gold:** Se explota analíticamente en `gold_q5_resenas_origen_variant` navegando con sintaxis de subcampos sin necesidad de definir esquemas rígidos: `metadata:origen::string`, logrando hasta 8x mayor rendimiento de lectura frente a strings JSON convencionales.
+* **Explotación Gold:** Se explota analíticamente en `gold.q5_resenas_origen_variant` navegando con sintaxis de subcampos sin necesidad de definir esquemas rígidos: `metadata:origen::string`, logrando hasta 8x mayor rendimiento de lectura frente a strings JSON convencionales.
 
 ### Reto 3: Auditoría y Medición de Costos por Recurso con `system.billing.usage`
 Para cuantificar el costo real y validar empíricamente la eficiencia de la arquitectura Serverless:
@@ -338,12 +338,9 @@ La orquestación del flujo de datos se diseñó bajo los siguientes principios o
 * **Alertas Gobernadas:** Se configuró `email_notifications` con notificación en fallo (`on_failure`) dirigida al correo del administrador (`ridgwayjose39@gmail.com`).
 * **Quality Gate de Validación (`02_validacion_calidad.py`):**
   1. Audita los conteos de filas de las 7 tablas de Silver.
-  2. Desglosa los 695 casos aislados en `silver_cuarentena` por origen y motivo.
+  2. Desglosa los 695 casos aislados en `silver.cuarentena` por origen y motivo.
   3. Falla con `AssertionError` si alguna tabla de Gold queda vacía (cero filas).
-  4. Garantiza la aplicación de Dynamic Data Masking en `silver_empleados`.
-  2. Desglosa los 695 casos aislados en `silver_cuarentena` por origen y motivo.
-  3. Falla con `AssertionError` si alguna tabla de Gold queda vacía (cero filas).
-  4. Garantiza la aplicación de Dynamic Data Masking en `silver_empleados`.
+  4. Garantiza la aplicación de Dynamic Data Masking en `silver.empleados`.
 
 ---
 
@@ -351,30 +348,30 @@ La orquestación del flujo de datos se diseñó bajo los siguientes principios o
 
 Todas las tablas Gold contienen datos conformados (cero tablas vacías):
 
-### Q1: Ventas Netas por Sucursal y Mes (`gold_q1_ventas_netas_sucursal_mes`)
+### Q1: Ventas Netas por Sucursal y Mes (`gold.q1_ventas_netas_sucursal_mes`)
 * **Registros generados:** **320 filas** (40 sucursales $\times$ 8 meses: marzo a octubre 2026).
 * **Métrica:** `ventas_brutas - total_devoluciones = ventas_netas`, junto con conteo de transacciones y ticket promedio.
 
 ### Q2: Top 10 Productos Más Vendidos y Más Devueltos
-* **Top Ventas (`gold_q2_top_productos_ventas` - 10 filas):**
+* **Top Ventas (`gold.q2_top_productos_ventas` - 10 filas):**
   1. `PRD-02306` — Televisor Lenovo Lite 191 (30 unidades vendidas, entretenimiento).
   2. `PRD-00751` — Calefactor Panasonic Smart 130 (29 unidades, climatización).
   3. `PRD-01619` — Barra de sonido Whirlpool Smart 820 (27 unidades, entretenimiento).
-* **Top Devoluciones (`gold_q2_top_productos_devoluciones` - 10 filas):** Identifica productos con mayor tasa de devolución (`devoluciones / ventas`) para auditoría técnica de calidad.
+* **Top Devoluciones (`gold.q2_top_productos_devoluciones` - 10 filas):** Identifica productos con mayor tasa de devolución (`devoluciones / ventas`) para auditoría técnica de calidad.
 
-### Q3: Dotación Activa y Rotación Mensual (`gold_q3_dotacion_activa_mensual`)
+### Q3: Dotación Activa y Rotación Mensual (`gold.q3_dotacion_activa_mensual`)
 * **Registros generados:** **320 filas** (40 sucursales $\times$ 8 meses).
 * **Métrica:** Conteo de personal activo al cierre de mes evaluando altas históricas sin cese vigente a esa fecha.
 
-### Q4: Rendimiento Histórico de Vendedores (`gold_q4_ventas_vendedor_historico`)
+### Q4: Rendimiento Histórico de Vendedores (`gold.q4_ventas_vendedor_historico`)
 * **Registros generados:** **4.082 filas**.
 * **Impacto SCD Tipo 2:** Cruce temporal preciso entre `fecha_venta` y la ventana `[__START_AT, __END_AT]` del vendedor. Si fue transferido, la venta se asigna a la sucursal donde trabajaba ese día.
 
 ### Q5: Reseñas Negativas por Categoría y Origen VARIANT
-* **`gold_q5_resenas_negativas_categoria` (40 filas):** 5 categorías $\times$ 8 meses con conteo de reseñas críticas (calificación 1 y 2) y ratio de insatisfacción.
-* **`gold_q5_resenas_origen_variant` (64 filas):** Segmentación por canal (`app`, `web`, `kiosko`) extraído mediante `metadata:origen::string`.
+* **`gold.q5_resenas_negativas_categoria` (40 filas):** 5 categorías $\times$ 8 meses con conteo de reseñas críticas (calificación 1 y 2) y ratio de insatisfacción.
+* **`gold.q5_resenas_origen_variant` (64 filas):** Segmentación por canal (`app`, `web`, `kiosko`) extraído mediante `metadata:origen::string`.
 
-### Q6: Desempeño y SLA de Couriers (`gold_q6_despachos_courier`)
+### Q6: Desempeño y SLA de Couriers (`gold.q6_despachos_courier`)
 * **Métricas Consolidadas (3 Couriers Oficiales Normalizados):**
   Se aplicó la función `normalize_courier` para unificar las variantes de escritura (`Olva`, `olva courier`, `OLVA COURIER` $\rightarrow$ `Olva Courier`), respondiendo a los 3 couriers oficiales:
   | Courier | Envíos Entregados | Total Finalizados | Envíos Devueltos | Tasa de Devolución | Tiempo Promedio Entrega |
@@ -404,7 +401,7 @@ ORDER BY timestamp DESC
 LIMIT 10;
 ```
 
-* **Resultado Obtenido:** La consulta confirmó la finalización exitosa de la actualización (`Update 3b6054 is COMPLETED`), el reporte de métricas de flujo para `silver_tracking_envios` y `gold_q6_despachos_courier`, y el ciclo completo de planificación, inicio y recomputación de flujos de datos.
+* **Resultado Obtenido:** La consulta confirmó la finalización exitosa de la actualización (`Update 3b6054 is COMPLETED`), el reporte de métricas de flujo para `silver.tracking_envios` y `gold.q6_despachos_courier`, y el ciclo completo de planificación, inicio y recomputación de flujos de datos.
 
 ![Consulta al Event Log de DLT](img/09_dlt_event_log_query.jpg)
 *Figura 7: Consulta ejecutada en SQL Editor a la función nativa `event_log()` del pipeline Medallion mostrando los eventos de ejecución y métricas de flujo.*

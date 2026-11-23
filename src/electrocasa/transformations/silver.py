@@ -3,14 +3,14 @@ Transformaciones Capa Silver - Lakeflow Spark Declarative Pipelines
 ElectroCasa Lakehouse Platform
 
 Limpieza, tipado ANSI, deduplicacion, expectativas de calidad, cuarentena y SCD Tipo 2:
-- silver_ventas: deduplicada y tipada (expect_or_drop monto y cantidad > 0)
-- silver_catalogo: maestro de productos deduplicado con precios limpios
-- silver_sucursales: maestro con casing estandarizado (initcap)
-- silver_devoluciones: reembolsos validados
-- silver_resenas: calificaciones validas (1 a 5) y tags estructurados
-- silver_tracking_envios: estados normalizados
-- silver_empleados: historizacion SCD Tipo 2 con Auto CDC y DDM (mask_dni, mask_salario)
-- silver_cuarentena: trazabilidad completa de registros rechazados (Reto diferenciador)
+- silver.ventas: deduplicada y tipada (expect_or_drop monto y cantidad > 0)
+- silver.catalogo: maestro de productos deduplicado con precios limpios
+- silver.sucursales: maestro con casing estandarizado (initcap)
+- silver.devoluciones: reembolsos validados
+- silver.resenas: calificaciones validas (1 a 5), tags estructurados y metadata VARIANT
+- silver.tracking_envios: estados normalizados
+- silver.empleados: historizacion SCD Tipo 2 con Auto CDC y DDM (mask_dni, mask_salario)
+- silver.cuarentena: trazabilidad completa de registros rechazados (Reto diferenciador)
 """
 
 import dlt
