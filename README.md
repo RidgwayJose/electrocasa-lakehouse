@@ -298,10 +298,10 @@ La tabla `dbo.TrackingEnvios` reside en una base de datos externa Azure SQL Data
 
 ## 6. Resultados de Ejecución y Métricas Consolidadas
 
-![Orquestación Lakeflow Job](img/04_lakeflow_job_dag_success.jpg)
+![Orquestación Lakeflow Job](img/04_lakeflow_job_dag_success.png)
 *Figura 4: Orquestador Lakeflow Job con sus 3 tareas secuenciales en verde (ingesta_copy_into -> pipeline_medallion -> validacion_calidad).*
 
-![DAG Pipeline DLT Medallion](img/03_dlt_pipeline_medallion.jpg)
+![DAG Pipeline DLT Medallion](img/03_dlt_pipeline_medallion.png)
 *Figura 5: Grafo acíclico dirigido (DAG) de Lakeflow Spark Declarative Pipelines completado con sus 22 tablas en verde.*
 
 ![Monitoreo Jobs y Pipelines](img/05_jobs_and_pipelines_overview.png)
@@ -422,9 +422,9 @@ ORDER BY timestamp DESC
 LIMIT 10;
 ```
 
-* **Resultado Obtenido:** La consulta confirmó la finalización exitosa de la actualización (`Update 3b6054 is COMPLETED`), el reporte de métricas de flujo para `silver.tracking_envios` y `gold.q6_despachos_courier`, y el ciclo completo de planificación, inicio y recomputación de flujos de datos.
+* **Resultado Obtenido:** La consulta confirmó la finalización exitosa de la actualización (`Update ad405d is COMPLETED`), el reporte de métricas de flujo para `silver.empleados`, `silver.tracking_envios`, `silver.catalogo`, `silver.sucursales`, `gold.q3_dotacion_activa_mensual`, y el ciclo completo de planificación y persistencia multi-schema.
 
-![Consulta al Event Log de DLT](img/09_dlt_event_log_query.jpg)
+![Consulta al Event Log de DLT](img/09_dlt_event_log_query.png)
 *Figura 7: Consulta ejecutada en SQL Editor a la función nativa `event_log()` del pipeline Medallion mostrando los eventos de ejecución y métricas de flujo.*
 
 #### B. Diagnóstico de Tablas de Sistema: `system.lakeflow.job_runs`
@@ -532,8 +532,8 @@ electrocasa-lakehouse/
 ├── img/                                # Evidencias visuales de ejecución en Databricks
 │   ├── 01_unity_catalog_groups.png     # Grupos administrados en Unity Catalog
 │   ├── 02_lakeflow_connect_tracking.jpg# Pipeline de Lakeflow Connect completado
-│   ├── 03_dlt_pipeline_medallion.jpg   # Grafo DLT Medallion con 21 tablas en verde
-│   ├── 04_lakeflow_job_dag_success.jpg # Orquestador Lakeflow Job completado con éxito
+│   ├── 03_dlt_pipeline_medallion.png   # Grafo DLT Medallion con 22 tablas en verde
+│   ├── 04_lakeflow_job_dag_success.png # Orquestador Lakeflow Job completado con éxito
 │   ├── 05_jobs_and_pipelines_overview.png # Vista general de monitoreo de Jobs y Pipelines
 │   ├── 06_auditoria_system_error.jpg   # Evidencia de restricción en catálogo system
 │   ├── 07_system_lakeflow_not_found.png # Error de tabla no encontrada en system.lakeflow
