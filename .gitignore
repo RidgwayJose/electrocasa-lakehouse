@@ -1,0 +1,23 @@
+# Databricks CLI y Bundles
+.databricks/
+
+# Variables de entorno y secretos locales
+.env
+secrets/
+*.key
+*.pem
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+.pytest_cache/
+.venv/
+env/
+venv/
+
+# IDE y Sistema Operativo
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
